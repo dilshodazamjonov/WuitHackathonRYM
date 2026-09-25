@@ -42,7 +42,7 @@ Source: `phase1_required_changes_with_holdout.md` (§ numbers below refer to it)
 - **Burst core for timing features.** Within `lag_days <= 1`, 7,200 of 14,000 train alerts also carry at least one ordinary background transaction. That pushes the median trigger duration from 2.8 min (last hour only) to 135 min. Compression and dormancy features therefore use `secs_before <= 3600` (`BURST_SECS`); composition features keep the review's `lag_days <= 1`. Checked in 3.5.
 - **No coefficient of variation on the raw index.** The index is centred near 0 (mean −0.13), so std / mean blows up. Structuring uses std, IQR and range of cash-in amounts instead (CV is fine only on `exp(index)`, which is P2).
 - **`recency_days` and `history_span_days` are dropped.** With a fixed 180-day lookback and a trigger at lag ≤ 1 in 99% of alerts, they are near-constant by construction.
-- **Pre-registered holdout rule.** The pass rule (dev OOF − holdout AUC < 2 bootstrap SE, ≈ 0.025 at 481 holdout positives) is written in `decisions.md` before the one scoring.
+- **Pre-registered holdout warning rule.** A drop of dev OOF − holdout AUC ≥ 2 bootstrap SE (≈ 0.025 at 481 holdout positives) raises a warning; the rule is written in `decisions.md` before the one scoring. It is a warning threshold, not a formal proof that the model generalizes: passing it only means the check found no sign of selection overfit.
 - **Split before any further label-based EDA.** The 80/20 split is task 2.2, straight after the target count, so every later by-class view, screen and error analysis runs on dev only.
 - **No net flow in index units.** The index is not money (§9), so flow uses counts, shares, timing and channel-relative sizes.
 
@@ -379,8 +379,8 @@ flowchart TD
     USE --> FR[Freeze Sat 22:00<br/>features, preprocessing, models,<br/>hyperparameters, blend]
     FR --> CHK{Score the holdout once<br/>dev OOF AUC vs holdout AUC}
     HO --> CHK
-    CHK -->|consistent| FIN[Final fit with the frozen config<br/>5-fold on all 14,000<br/>test predictions averaged over folds]
-    CHK -->|large drop| INV[Warning: investigate on dev CV,<br/>prefer the simpler config,<br/>never tune on the holdout]
+    CHK -->|no warning| FIN[Final fit with the frozen config<br/>5-fold on all 14,000<br/>test predictions averaged over folds]
+    CHK -->|warning: drop of 2 SE or more| INV[Investigate on dev CV,<br/>prefer the simpler config,<br/>never tune on the holdout]
     INV --> FIN
     FIN --> CSV[team_486052EC.csv]
 ```
@@ -395,7 +395,7 @@ flowchart TD
 - [ ] 🟠 **2.6 Workload.** Alerts per day (train+test dates, no labels) against the escalation rate on dev: univariate AUC and decile rate. This is system context, not a raw-date identifier (§13). As a feature it stays P2 and enters only through the Phase 4 ablation. → A08
 - [ ] 🟢 **2.7 Alert-date calendar.** Day of week, month, month-end, holidays (Navruz, Independence Day, Ramazon/Qurbon hayit). Low priority; keep only with a convincing relationship that CV agrees with. `signal_id`, row order and the raw alert date are **never** features.
 - [ ] 🔴 **2.8 Baseline v0 + safety CSV (≤ 1h).** Full-history totals per direction × type (29 features); LightGBM on the dev folds; log the dev CV AUC in `cv_log.csv`. Predict test with the average of the 5 dev-fold models, then **write and validate `team_486052EC.csv`**, so a valid file always exists. → A09, A11, A12
-- [ ] 🔴 **2.9 Freeze the validation design.** Record in `decisions.md`: split, folds and seed; the holdout protocol (scored once after the freeze, pass rule written before scoring); the final-fit recipe. After this, validation is not reopened.
+- [ ] 🔴 **2.9 Freeze the validation design.** Record in `decisions.md`: split, folds and seed; the holdout protocol (scored once after the freeze, warning rule written before scoring); the final-fit recipe. After this, validation is not reopened.
 
 **Done when:** `split.csv` and the folds are frozen, F01/F02 are exported, the adversarial AUC is logged, the baseline dev AUC is in `cv_log.csv`, and a valid `team_486052EC.csv` exists.
 
@@ -594,7 +594,7 @@ Everything here runs on the dev folds. No holdout numbers exist yet.
 - [ ] 🔴 **5.6 Stability report.** Dev fold mean ± std and the correlation between the models' predictions (roughly 0.85–0.98 is healthy, below 0.7 needs investigating). 🟢 Time stress test: train on the oldest 80% of dev, validate on the newest 20% (`time_folds`, A07). It is reported, never used to select.
 - [ ] 🟠 **5.7 Explainability.** Mean gain importance across folds; optional SHAP summary for the top 20. Check that the signs make business sense, e.g. more cash in the trigger than usual → higher risk. → F17
 - [ ] 🟠 **5.8 Business metrics for the website.** Dev OOF ROC curve, Gini, KS and capture@10/20/30% ("reviewing the top 20% of the queue catches X% of escalations"). → A16, F16
-- [ ] 🔴 **5.9 Freeze the configuration (Sat 22:00).** `FEATURES`, preprocessing, `LGB_PARAMS`, `CAT_PARAMS`, `SEEDS` and `W_LGB` go into `decisions.md`. **Write the holdout pass rule there before scoring:** consistent if dev OOF AUC − holdout AUC < 2 bootstrap SE (≈ 0.025 with 481 holdout positives).
+- [ ] 🔴 **5.9 Freeze the configuration (Sat 22:00).** `FEATURES`, preprocessing, `LGB_PARAMS`, `CAT_PARAMS`, `SEEDS` and `W_LGB` go into `decisions.md`. **Write the holdout warning rule there before scoring:** warning if dev OOF AUC − holdout AUC ≥ 2 bootstrap SE (≈ 0.025 with 481 holdout positives). It is a warning threshold, not proof of generalization.
 
 > **Tuning note:** keep any tuning code behind `RUN_TUNING = False` and paste the best parameters in as constants, so the final notebook runs fast.
 
@@ -604,8 +604,8 @@ Everything here runs on the dev folds. No holdout numbers exist yet.
 
 - [ ] 🔴 **6.1 Feature freeze Sat 22:00.** Sunday is for verification, not new ideas.
 - [ ] 🔴 **6.2 Holdout confirmation, once (Sun 09:00).** `fit_blend` with the frozen config on the dev folds → predict the holdout → holdout AUC with a bootstrap CI vs the dev OOF AUC. Log both in `decisions.md` and `metrics.json`. The cell is added to the notebook only now, so no earlier run ever printed a holdout number. → A17
-  - **Consistent** (drop < 2 SE): go to 6.3.
-  - **Large drop:** it is a warning, not a tuning signal. Investigate on dev CV (fold spread, the last families the ablation added, the blend weight). If a simpler configuration is clearly safer on dev CV, switch to it and record why. Do not re-score the holdout to choose, and report the holdout number as it came out.
+  - **No warning** (drop < 2 SE): go to 6.3. This supports the CV process; it does not prove that the model generalizes.
+  - **Warning** (drop ≥ 2 SE): a warning, not a tuning signal. Investigate on dev CV (fold spread, the last families the ablation added, the blend weight). If a simpler configuration is clearly safer on dev CV, switch to it and record why. Do not re-score the holdout to choose, and report the holdout number as it came out.
 - [ ] 🔴 **6.3 Final fit on all 14,000.** The same frozen config on `final_folds` (5-fold on all labels), with early stopping inside each fold. Test predictions are averaged over folds and seeds, then rank-blended with `W_LGB`. The 20% is never kept out of the final model. → A18
 - [ ] 🔴 **6.4 Sanity checks.** The test prediction distribution resembles the full OOF distribution, there are no NaNs, the LightGBM/CatBoost test correlation is healthy, and the validator passes.
 - [ ] 🔴 **6.5 Restart & Run All** → CSV written → validator passes (A12) → note the md5.
@@ -665,7 +665,7 @@ Everything here runs on the dev folds. No holdout numbers exist yet.
 | Gini and KS next to AUC | `METRICS` in A16 | Standard discrimination measures in bank model validation |
 | WoE / IV univariate screen | A15 | Classic scorecard check. IV bands: < 0.02 useless · 0.02–0.1 weak · 0.1–0.3 medium · 0.3–0.5 strong · > 0.5 suspicious |
 | PSI stability | A10, A15 | Standard drift measure: < 0.10 stable · 0.10–0.25 monitor · > 0.25 shifted |
-| Independent confirmation sample | 20% holdout scored once, pass rule written beforehand, then refit on all data | Mirrors out-of-sample validation in model risk management and guards against selection overfit |
+| Independent confirmation sample | 20% holdout scored once, warning rule written beforehand, then refit on all data | Mirrors out-of-sample validation in model risk management and guards against selection overfit |
 | Risk-based, typology-driven features | D10 | Mirrors FFIEC / FINTRAC / FATF red-flag lists and is easy to explain |
 | Behavior against the customer's own baseline | trigger vs background (4.3) | How analysts actually judge an alert |
 | Explainability and sign checks | 5.7 | Triage models must be explainable to analysts and supervisors |
@@ -1413,7 +1413,7 @@ blend_grid, METRICS
 
 ### A17 — Holdout confirmation (Sun 09:00, run once)
 
-Add this cell to the notebook only at the freeze, after the pass rule is in `decisions.md`. `fit_blend` is the one code path shared by the holdout check and the final fit, so the holdout scores exactly the configuration that gets submitted.
+Add this cell to the notebook only at the freeze, after the warning rule is in `decisions.md`. `fit_blend` is the one code path shared by the holdout check and the final fit, so the holdout scores exactly the configuration that gets submitted.
 
 ```python
 SEEDS = [SEED, 7, 2026]
@@ -1440,7 +1440,7 @@ HOLDOUT = {
     "holdout_ci95": [round(float(q), 4) for q in np.quantile(boot, [0.025, 0.975])],
 }
 HOLDOUT["drop"] = round(HOLDOUT["dev_oof_auc"] - HOLDOUT["holdout_auc"], 5)
-HOLDOUT["consistent"] = bool(HOLDOUT["drop"] < 2 * HOLDOUT["holdout_auc_se"])
+HOLDOUT["warning"] = bool(HOLDOUT["drop"] >= 2 * HOLDOUT["holdout_auc_se"])
 HOLDOUT
 ```
 
@@ -1471,6 +1471,6 @@ The real log already holds the Phase 0–1 rows. The rows below are **examples o
 | Fri 25 14:00 (example) | Stratified 80/20 dev/holdout, seed 42; StratifiedKFold(5) inside dev; holdout closed until the freeze | 2.2, split.csv | – |
 | Fri 25 15:30 (example) | Validation frozen: adversarial AUC 0.50x on v0 features, weekly test share flat | F02, A10 | – |
 | Fri 25 21:00 (example) | Composition features on lag_days <= 1, compression on the burst core: same composition AUC under both | 3.5 | – |
-| Sat 26 22:00 (example) | Holdout pass rule: consistent if dev OOF AUC − holdout AUC < 2 bootstrap SE | 5.9 | – |
-| Sun 27 09:20 (example) | Holdout AUC 0.xxx vs dev OOF 0.xxx → consistent; final fit on all 14,000 | A17 | – |
+| Sat 26 22:00 (example) | Holdout warning rule: warning if dev OOF AUC − holdout AUC ≥ 2 bootstrap SE (a threshold, not a proof) | 5.9 | – |
+| Sun 27 09:20 (example) | Holdout AUC 0.xxx vs dev OOF 0.xxx → no warning; final fit on all 14,000 | A17 | – |
 ```

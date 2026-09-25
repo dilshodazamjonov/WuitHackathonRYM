@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alert Escalation EDA</title>
+  <meta name="description" content="Team RYM, WIUT Hackathon 2026 FinTech track: exploratory data analysis of automated transaction-monitoring alerts and which of them analysts escalate.">
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#top"><span class="brand-mark">RYM</span><span class="brand-text">Alert escalation · EDA</span></a>
+    <nav class="topnav" aria-label="Sections">
+      <a href="#start">Starting point</a>
+      <a href="#approach">Approach</a>
+      <a href="#dataset">Dataset</a>
+      <a href="#history">History</a>
+      <a href="#target">Target</a>
+      <a href="#features">Features</a>
+      <a href="#conclusion">Conclusion</a>
+    </nav>
+  </div>
+</header>
+
+<header class="hero" id="top">
+  <p class="event">WIUT Hackathon 2026 · FinTech track</p>
+  <h1>Which alerts get escalated?</h1>
+  <p class="lede">A monitoring rule raises an alert, and an analyst either dismisses it or escalates it for investigation. This page walks through how we explored the 180 days of transactions behind each alert, what we found, and how those findings shape our model.</p>
+  <div class="team">
+    <p class="team-name">Team RYM</p>
+    <ul class="members">
+      <li>Dilshod A'zamjonov <span>ML engineer</span></li>
+      <li>Ulugbek Bakhtiyorov <span>Backend engineer</span></li>
+      <li>Rakhmatilla Erkinov <span>Frontend engineer</span></li>
+    </ul>
+  </div>
+  <p class="meta">Updated 25 September 2026 · Sections marked <span class="pill">In progress</span> are filled in as the analysis moves forward.</p>
+  <nav class="toc" aria-label="Contents">
+    <a href="#start">Starting point</a>
+    <a href="#approach">Approach</a>
+    <a href="#dataset">Dataset</a>
+    <a href="#history">Transaction history</a>
+    <a href="#target">Target and behavior</a>
+    <a href="#features">From EDA to features</a>
+    <a href="#conclusion">Conclusion</a>
+  </nav>
+</header>
+
+<main>
+
+  <section id="start" class="section">
+    <p class="eyebrow">01</p>
+    <h2>What we expected, and what the data said</h2>
+    <p>We began with a textbook plan for alert triage, built on how bank monitoring teams usually reason: validate on a later time period, look for night-time and weekend activity, link alerts that belong to the same customer, flag round amounts, and summarize behavior over generic 1- to 90-day windows. Before building any model, we tested each of these assumptions against the data. Most of them did not survive, and every one that failed changed the plan.</p>
+
+    <ol class="shifts wide">
+      <li class="shift">
+        <p class="shift-tag">01 · Validation</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>The hidden test set is a later period, so validation has to be a time split.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>Test alerts are spread evenly through the same two years: <b>30%</b> of the alerts in every quarter and in every ID decile belong to the test set, and IDs, file order and dates carry no signal (AUC 0.50 to 0.51).</p>
+        <p class="shift-now"><span class="lbl">So we</span>Use stratified, shuffled 5-fold cross-validation on alerts, plus a 20% holdout scored once as a warning check.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">02 · Customers</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>Several alerts belong to the same customer, and a customer's earlier alerts are a strong signal.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>Not one of the <b>10 million</b> transaction rows appears under more than one alert.</p>
+        <p class="shift-now"><span class="lbl">So we</span>Treat every alert as an independent history: no grouped folds, no linked-alert features.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">03 · Leakage</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>Some transactions happen after the alert and could leak the analyst's decision.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span><b>0</b> transactions fall after the alert date, and every history covers the same 180 days before it.</p>
+        <p class="shift-now"><span class="lbl">So we</span>Keep one pipeline, with every window measured backwards from the alert date.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">04 · Clock time</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>Night-time and weekend activity are red flags.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>Hours 0 to 22 each hold <b>3.8%</b> of transactions and every weekday holds 14.3%. The one peak, hour 23, is the burst right before the alert.</p>
+        <p class="shift-now"><span class="lbl">So we</span>Drop hour-of-day and weekday features, and measure time relative to the alert instead.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">05 · Time windows</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>Generic 1-, 3-, 7-, 30- and 90-day windows describe recent behavior well enough.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>About <b>8%</b> of all transactions sit in the last few minutes before the alert date begins, on top of a slowly declining 180-day background. Early checks suggest the size of that burst alone separates the classes only weakly.</p>
+        <p class="shift-now"><span class="lbl">So we</span>Split every history into the trigger window and the background, and model the change between them.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">06 · Trigger boundary</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>The trigger is simply the last calendar day before the alert.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>In <b>7,200</b> of 14,000 alerts that day also holds ordinary transactions, which stretches the median burst from 2.8 to 135 minutes.</p>
+        <p class="shift-now"><span class="lbl">So we</span>Measure timing features, such as compression and the silence before the burst, on the last hour only.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">07 · Amount scale</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>The amount index is standardized within each alert, or <code>exp(index)</code> gives back money.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>Per-alert means spread with a standard deviation of <b>0.49</b>, so it is one global scale, and each payment channel is its own shifted bell curve. The exact transform is unknown.</p>
+        <p class="shift-now"><span class="lbl">So we</span>Judge amounts against their own channel, and keep <code>exp(index)</code> only as an experimental feature.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">08 · Round amounts</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>Structuring shows up as repeated round amounts.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>Only <b>4</b> values repeat exactly among seven million training rows, and each is the cap of one transaction type.</p>
+        <p class="shift-now"><span class="lbl">So we</span>Describe structuring by similar cash deposits with a low spread, not by identical ones.</p>
+      </li>
+    </ol>
+    <p class="bridge">What survived these checks became the approach below. The sections after it show the evidence behind each change.</p>
+  </section>
+
+  <section id="approach" class="section">
+    <p class="eyebrow">02</p>
+    <h2>Approach</h2>
+    <p>Every alert in the data has already passed a monitoring rule, so the dismissed alerts are near misses, not ordinary customers. The label is an analyst's decision. It reflects what the rule saw, how that compares with the customer's usual behavior, and human factors such as workload. Our goal is to rank the alert queue so that the alerts most likely to be escalated come first. The score is ROC-AUC on a hidden test set, and each team submits once.</p>
+    <ol class="steps">
+      <li><strong>Audit first.</strong> Before looking at the target, check integrity, how the test set was drawn, and anything that could leak the label.</li>
+      <li><strong>Fix validation once.</strong> The labeled alerts are split 80 / 20, stratified on the label. Every decision uses the same 5-fold cross-validation on the 80% development set. The 20% holdout is scored once, after features, models and blend are frozen, as a warning check. The final model is then refit on all 14,000 labeled alerts.</li>
+      <li><strong>Explore behavior on the development set.</strong> Each history is split into the customer's background and the trigger window just before the alert, and escalated and dismissed alerts are compared on both.</li>
+      <li><strong>Turn observations into features.</strong> Each idea becomes a feature family. A family stays only if cross-validated AUC improves on average and on at least 4 of 5 folds.</li>
+      <li><strong>Model.</strong> Gradient-boosted trees (LightGBM and CatBoost), blended by rank average, since AUC depends only on the order of the scores.</li>
+    </ol>
+  </section>
+
+  <section id="dataset" class="section">
+    <p class="eyebrow">03</p>
+    <h2>Dataset</h2>
+    <p>Each set has two tables. The signals table holds one row per alert: its ID, the alert date and, in training, the label. The transactions table holds each alert's history, one row per transaction, with a timestamp, a direction, a type and a standardized amount index. There is no customer ID, no account balance, no counterparty and no information about which rule fired.</p>
+
+    <div class="table-wrap">
+      <table class="overview-table">
+        <thead>
+          <tr><th></th><th class="num">Train</th><th class="num">Test</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Alerts</td><td class="num">14,000</td><td class="num">6,000</td></tr>
+          <tr><td>Transactions</td><td class="num">6,987,663</td><td class="num">3,027,575</td></tr>
+          <tr><td>Alert dates</td><td class="num">Jan 2025 – Dec 2026</td><td class="num">Jan 2025 – Dec 2026</td></tr>
+          <tr><td>Transactions per alert, median</td><td class="num">461</td><td class="num">460.5</td></tr>
+          <tr><td>Transactions per alert, 99th percentile</td><td class="num">1,350</td><td class="num">1,361</td></tr>
+          <tr><td>History before the alert date</td><td class="num">180 days</td><td class="num">180 days</td></tr>
+          <tr><td>Escalated</td><td class="num">2,405 (17.2%)</td><td class="num">hidden</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Columns</h3>
+    <div class="table-wrap">
+      <table class="columns-table">
+        <thead>
+          <tr><th>Table</th><th>Column</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>signals</td><td><code>signal_id</code></td><td>alert ID, one row per alert</td></tr>
+          <tr><td>signals</td><td><code>signal_sanasi</code></td><td>alert date (day precision)</td></tr>
+          <tr><td>signals</td><td><code>eskalatsiya</code></td><td>target: 1 = escalated, 0 = dismissed (training only)</td></tr>
+          <tr><td>transactions</td><td><code>tranzaksiya_vaqti</code></td><td>timestamp, second precision</td></tr>
+          <tr><td>transactions</td><td><code>kirim_chiqim</code></td><td>direction: <code>kirim</code> = incoming, <code>chiqim</code> = outgoing</td></tr>
+          <tr><td>transactions</td><td><code>tranzaksiya_turi</code></td><td>type: <code>karta</code> = card, <code>bank_otkazmasi</code> = bank transfer, <code>naqd</code> = cash, <code>xalqaro</code> = international</td></tr>
+          <tr><td>transactions</td><td><code>miqdor_indeksi</code></td><td>standardized transaction-size index; the exact transform is unknown</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Transaction mix</h3>
+    <p>Share of all training transactions by direction and type.</p>
+    <div class="table-wrap">
+      <table class="mix-table">
+        <thead>
+          <tr><th></th><th class="num">Card</th><th class="num">Bank transfer</th><th class="num">Cash</th><th class="num">International</th><th class="num">All</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Incoming</td><td class="num">41.3%</td><td class="num">29.3%</td><td class="num">4.8%</td><td class="num">0.35%</td><td class="num">75.7%</td></tr>
+          <tr><td>Outgoing</td><td class="num">12.5%</td><td class="num">10.2%</td><td class="num">1.6%</td><td class="num">0.11%</td><td class="num">24.3%</td></tr>
+          <tr class="total"><td>All</td><td class="num">53.8%</td><td class="num">39.4%</td><td class="num">6.3%</td><td class="num">0.46%</td><td class="num">100%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Card payments and bank transfers make up 93% of all transactions, cash 6% and international transfers under half a percent. Train and test shares agree within 0.2 percentage points. International activity is sparse within a single alert, so it is best described by counts and flags rather than distributions.</p>
+
+    <h3>Data quality</h3>
+    <p>Before trusting any pattern, we checked the data itself:</p>
+    <ul class="checks">
+      <li>No missing values, no duplicate alert IDs and no exact duplicate transaction rows.</li>
+      <li>Every alert has transactions, and every transaction belongs to a known alert.</li>
+      <li>Alert IDs, file order and alert dates carry no information about the label (AUC 0.50 to 0.51).</li>
+      <li>No transaction appears under two alerts, so every alert is an independent history and there is no prior-alert history to recover.</li>
+      <li>The test set is a random 30% of alerts. Every ID decile and every quarter holds about 30% test alerts, and train and test cover the same two years, so cross-validation on shuffled, stratified folds faces the same task as the hidden test.</li>
+    </ul>
+  </section>
+
+  <section id="history" class="section">
+    <p class="eyebrow">04</p>
+    <h2>What the transaction history looks like</h2>
+    <p>With the data checked, the next question was what the months before an alert look like. Three views changed our plan the most.</p>
+
+    <div class="stats wide">
+      <div class="stat"><b>180 days</b><span>of history before every alert date</span></div>
+      <div class="stat"><b>≈ 8%</b><span>of all transactions sit in the last hour before the alert date</span></div>
+      <div class="stat"><b>31</b><span>median transactions in that pre-alert burst</span></div>
+      <div class="stat"><b>0</b><span>transactions after the alert date</span></div>
+    </div>
+
+    <h3>Months of background, then a burst</h3>
+    <p>Every history covers the same 180 days before the alert date, and nothing is recorded after it. Background activity forms a slow hump: about 2 transactions per alert per day six months out, a peak of about 3 around four months out, then a steady decline to about 1 per day in the final week. In the last minutes before the alert date begins, activity jumps to about 40 transactions.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F00b_relative_time.png"><img src="figures/F00b_relative_time.png" width="1481" height="566" alt="Two panels. Left: transactions per alert per day against days before the alert date on a log scale; train and test overlap, a gentle hump peaks around 120 days and falls to about 1 per day, then spikes to about 40 at day zero. Right: density of transactions in the last hour before midnight on a log scale; almost all mass sits in the last three minutes."></a>
+      <figcaption><strong>Activity relative to the alert date.</strong> Left: transactions per alert per day (log scale); train and test lie on top of each other. Right: the last hour before the alert date, by minutes before midnight (log scale). Almost everything falls in the final three minutes.</figcaption>
+    </figure>
+    <p>The burst is dense: its median transaction lands 1.5 minutes before midnight and 99% fall within 3 minutes. Inside it, 17% of rows share the exact second with another transaction of the same alert, against 0.04% everywhere else. 152 alerts (1%) have no burst, and 21 carry it just after midnight on the alert date itself.</p>
+    <p class="takeaway">We read the burst as the activity that triggered the rule, the <strong>trigger window</strong>, and the months before it as the customer's <strong>background</strong>. An analyst asks how different the trigger is from the customer's normal, so our features describe both, and above all the change between them.</p>
+
+    <h3>No daily or weekly rhythm</h3>
+    <p>Hours 0 to 22 each hold 3.8% of transactions and every weekday holds 14.3%: the timestamps carry no daily or weekly pattern. Hour 23 holds 11.7%, three times any other hour, but that is the pre-alert burst, not night-time behavior.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F00a_hour_weekday.png"><img src="figures/F00a_hour_weekday.png" width="1491" height="566" alt="Two panels. Left: share of transactions by hour of day, flat at about 0.038 for hours 0 to 22 and 0.117 at hour 23. Right: share by weekday, flat at about 0.143 for all seven days. Train and test overlap."></a>
+      <figcaption><strong>Share of transactions by hour and by weekday.</strong> Flat everywhere except hour 23, which holds the pre-alert burst.</figcaption>
+    </figure>
+    <p class="takeaway">Clock time is not informative here, so we build no hour-of-day or weekday features. Time only matters relative to the alert: how long before it, how dense, how fast.</p>
+
+    <h3>Amounts: one scale, shifted by channel</h3>
+    <p>The amount index is close to a normal distribution (mean −0.13, standard deviation 0.98) with a mild right tail and a hard floor at −2.91. It is one scale for all transactions, not standardized within each alert, so size differences between alerts survive. Within every direction and type the index is again bell-shaped, only shifted: card is lowest, then bank transfer, then cash, and international sits about two units higher. Outgoing is above incoming in every channel.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F00c_amount_index.png"><img src="figures/F00c_amount_index.png" width="1477" height="566" alt="Two panels. Left: histogram of the amount index for all transactions, bell-shaped with a right tail; train and test overlap. Right: histograms by direction and type; incoming card peaks lowest near minus 0.6, international peaks highest near 1.5 to 2."></a>
+      <figcaption><strong>Distribution of <code>miqdor_indeksi</code>.</strong> Left: all transactions, train and test. Right: by direction and type (training set). Each channel is a shifted bell curve.</figcaption>
+    </figure>
+    <p>Only four values repeat exactly among seven million rows, and each is the maximum of one transaction type. Amounts are capped per type, and there is no sign of round-amount heaping. The shape fits a transformed log-amount, but the exact transform is unknown, so we treat <code>exp(index)</code> only as an experimental feature and do not read it as money.</p>
+    <p class="takeaway">A single global threshold would mostly flag international transfers. "Large" has to be judged within each channel, for example as the share of transactions above that channel's own 95th percentile.</p>
+  </section>
+
+  <section id="target" class="section">
+    <p class="eyebrow">05</p>
+    <h2>Target and behavior</h2>
+    <p>Only once the structure of the histories was clear did we turn to the label.</p>
+    <h3>Target distribution</h3>
+    <div class="split-bar" role="img" aria-label="82.8% of training alerts dismissed, 17.2% escalated">
+      <span class="seg dismissed" style="width: 82.8%">Dismissed · 11,595</span>
+      <span class="seg escalated" style="width: 17.2%">2,405</span>
+    </div>
+    <p class="legend"><span class="dot dismissed"></span>Dismissed 82.8% <span class="dot escalated"></span>Escalated 17.2%</p>
+    <p>2,405 of the 14,000 training alerts were escalated, about one for every 4.8 dismissed. That is imbalanced but not rare. AUC depends only on ranking, so we don't resample; instead every split is stratified on the label.</p>
+
+    <div class="pending">
+      <span class="pill">In progress</span>
+      <p>Escalation rate over time, alerts per week in train and test, and the comparisons between escalated and dismissed alerts: background activity, the trigger window against the background, incoming vs outgoing behavior, channel mix, channel-relative amounts and burst compression. All class comparisons use the development set only, never the holdout.</p>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <p class="eyebrow">06</p>
+    <h2>From EDA to features</h2>
+    <p>Each observation above changed a modeling decision.</p>
+    <div class="table-wrap wide">
+      <table class="decisions">
+        <thead>
+          <tr><th>What we saw</th><th>What we do</th></tr>
+        </thead>
+        <tbody>
+          <tr><td data-label="What we saw">The test set is a random 30% of alerts over the same two years</td><td data-label="What we do">Stratified, shuffled K-fold cross-validation instead of a time split</td></tr>
+          <tr><td data-label="What we saw">No transaction is shared between alerts</td><td data-label="What we do">Treat every alert as independent: no grouped folds, no linked-alert features</td></tr>
+          <tr><td data-label="What we saw">Fixed 180-day history, nothing after the alert date</td><td data-label="What we do">One pipeline, with every window measured backwards from the alert date</td></tr>
+          <tr><td data-label="What we saw">A dense burst right before every alert</td><td data-label="What we do">Split each history into background (2 or more days before) and trigger window (the last day), and describe both and the change between them</td></tr>
+          <tr><td data-label="What we saw">The burst lasts about 3 minutes, while the day before also holds ordinary transactions</td><td data-label="What we do">Measure timing features (compression, silence before the burst) on the last hour only</td></tr>
+          <tr><td data-label="What we saw">No daily or weekly rhythm</td><td data-label="What we do">No hour-of-day or weekday features</td></tr>
+          <tr><td data-label="What we saw">Each payment channel sits at its own amount level</td><td data-label="What we do">Channel-relative thresholds and deviations per direction and type</td></tr>
+          <tr><td data-label="What we saw">Only per-type caps repeat, with no round amounts</td><td data-label="What we do">No round-amount or exact-repeat features; structuring is described by <em>similar</em> cash deposits (low spread)</td></tr>
+          <tr><td data-label="What we saw">The index is centred near zero</td><td data-label="What we do">Spread measured by standard deviation and interquartile range, not the coefficient of variation</td></tr>
+          <tr><td data-label="What we saw">IDs, file order and dates carry no signal</td><td data-label="What we do">Never used as features</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Feature families under test</h3>
+    <ul class="families">
+      <li><strong>Standard windows</strong> Counts and amount statistics for the trigger window and for 7-, 30-, 90- and 180-day background windows, split by direction and type.</li>
+      <li><strong>Trigger vs background</strong> The trigger's transaction rate relative to the background daily rate, and the change in cash, international and outgoing share and in amount level.</li>
+      <li><strong>Channel-relative amounts</strong> Counts and shares above each channel's own 95th and 99th percentile, and deviation from the channel mean.</li>
+      <li><strong>Flow and pass-through</strong> How quickly money leaves after it arrives, the incoming-to-outgoing ratio, and the spread of cash deposits.</li>
+      <li><strong>Burst compression</strong> Same-second share, transactions per minute and gaps inside the burst.</li>
+      <li><strong>Rhythm and sequences</strong> Gaps in the background, silence before the burst, and transitions between direction-and-type states.</li>
+    </ul>
+    <p>A hypothesis is not a feature until cross-validation agrees. Early checks suggest that the raw size of the burst separates escalated from dismissed alerts only weakly, so the main hypothesis is the change from the customer's own background.</p>
+
+    <div class="pending">
+      <span class="pill">In progress</span>
+      <p>Which feature families improved cross-validated AUC (ablation), the strongest single features, and a train-vs-test drift check.</p>
+    </div>
+  </section>
+
+  <section id="conclusion" class="section">
+    <p class="eyebrow">07</p>
+    <h2>Conclusion</h2>
+    <h3>Findings so far</h3>
+    <ul>
+      <li>The data is clean, and the test set is a random sample of alerts, so stratified cross-validation mirrors the hidden test.</li>
+      <li>Every alert follows the same pattern: 180 days of slowly declining background activity, then a dense burst of transactions in the minutes before the alert date.</li>
+      <li>Clock time carries no signal. Time only matters relative to the alert.</li>
+      <li>Amounts share one scale, but each payment channel sits at a different level, so "large" has to be judged within the channel.</li>
+    </ul>
+
+    <div class="pending">
+      <span class="pill">In progress</span>
+      <p>Final results: cross-validated and holdout AUC, what drives the model, and how many escalations an analyst catches by reviewing the queue in model order.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <p><strong>Team RYM</strong> · Dilshod A'zamjonov, ML engineer · Ulugbek Bakhtiyorov, Backend engineer · Rakhmatilla Erkinov, Frontend engineer</p>
+    <p>WIUT Hackathon 2026, FinTech track. All numbers and figures on this page are aggregates produced by our reproducible notebook; no raw competition data is published here.</p>
+  </div>
+</footer>
+
+</body>
+</html>

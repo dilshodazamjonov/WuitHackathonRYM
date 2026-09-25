@@ -31,7 +31,7 @@
 <header class="hero" id="top">
   <p class="event">WIUT Hackathon 2026 · FinTech track</p>
   <h1>Which alerts get escalated?</h1>
-  <p class="lede">A monitoring rule raises an alert, and an analyst either dismisses it or escalates it for investigation. This page walks through how we explored the 180 days of transactions behind each alert, what we found, and how those findings shape our model.</p>
+  <p class="lede">A monitoring rule raises an alert, and an analyst either dismisses it or escalates it for investigation. This page walks through how we explored the transactions in the 180-day window before each alert, what we found, and how those findings shape our model.</p>
   <div class="team">
     <p class="team-name">Team RYM</p>
     <ul class="members">
@@ -57,7 +57,7 @@
   <section id="start" class="section">
     <p class="eyebrow">01</p>
     <h2>What we expected, and what the data said</h2>
-    <p>We began with a textbook plan for alert triage, built on how bank monitoring teams usually reason: validate on a later time period, look for night-time and weekend activity, link alerts that belong to the same customer, flag round amounts, and summarize behavior over generic 1- to 90-day windows. Before building any model, we tested each of these assumptions against the data. Most of them did not survive, and every one that failed changed the plan.</p>
+    <p>We began with a textbook plan for alert triage, built on how bank monitoring teams usually reason: validate on a later time period, look for night-time and weekend activity, link alerts that belong to the same customer, flag round amounts, summarize behavior over generic 1- to 90-day windows, and expect the risk to show in the burst of activity right before an alert and in unusually large amounts. Before building any model, we tested each of these assumptions against the data. Most of them did not survive, and every one that failed changed the plan.</p>
 
     <ol class="shifts wide">
       <li class="shift">
@@ -75,7 +75,7 @@
       <li class="shift">
         <p class="shift-tag">03 · Leakage</p>
         <p class="shift-was"><span class="lbl">We assumed</span>Some transactions happen after the alert and could leak the analyst's decision.</p>
-        <p class="shift-data"><span class="lbl">The data showed</span><b>0</b> transactions fall after the alert date, and every history covers the same 180 days before it.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span><b>0</b> transactions fall after the alert date, and transactions are observed within a common 180-day lookback window before it.</p>
         <p class="shift-now"><span class="lbl">So we</span>Keep one pipeline, with every window measured backwards from the alert date.</p>
       </li>
       <li class="shift">
@@ -87,7 +87,7 @@
       <li class="shift">
         <p class="shift-tag">05 · Time windows</p>
         <p class="shift-was"><span class="lbl">We assumed</span>Generic 1-, 3-, 7-, 30- and 90-day windows describe recent behavior well enough.</p>
-        <p class="shift-data"><span class="lbl">The data showed</span>About <b>8%</b> of all transactions sit in the last few minutes before the alert date begins, on top of a slowly declining 180-day background. Early checks suggest the size of that burst alone separates the classes only weakly.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>About <b>8%</b> of all transactions sit in the last few minutes before the alert date begins, on top of a slowly declining 180-day background.</p>
         <p class="shift-now"><span class="lbl">So we</span>Split every history into the trigger window and the background, and model the change between them.</p>
       </li>
       <li class="shift">
@@ -107,6 +107,18 @@
         <p class="shift-was"><span class="lbl">We assumed</span>Structuring shows up as repeated round amounts.</p>
         <p class="shift-data"><span class="lbl">The data showed</span>Only <b>4</b> values repeat exactly among seven million training rows, and each is the cap of one transaction type.</p>
         <p class="shift-now"><span class="lbl">So we</span>Describe structuring by similar cash deposits with a low spread, not by identical ones.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">09 · Trigger burst</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>The burst right before the alert, especially compared with the customer's own background, is what analysts react to.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>Across 13 variables describing the burst and its change from the background, the AUC stays between <b>0.470</b> and 0.528. Used together they reach 0.547, below the 0.614 of simple 180-day totals.</p>
+        <p class="shift-now"><span class="lbl">So we</span>Keep the trigger only as a compact, low-priority feature family, and put the main effort elsewhere.</p>
+      </li>
+      <li class="shift">
+        <p class="shift-tag">10 · Large amounts</p>
+        <p class="shift-was"><span class="lbl">We assumed</span>Large transactions are the red flag.</p>
+        <p class="shift-data"><span class="lbl">The data showed</span>Escalated alerts make <b>smaller</b> bank transfers, at every point in the six months. Judged against the alert's own card spending, this is the strongest single signal we found (AUC 0.603).</p>
+        <p class="shift-now"><span class="lbl">So we</span>Build the main feature family from amounts judged within each channel and against the alert's own level in other channels.</p>
       </li>
     </ol>
     <p class="bridge">What survived these checks became the approach below. The sections after it show the evidence behind each change.</p>
@@ -141,7 +153,7 @@
           <tr><td>Alert dates</td><td class="num">Jan 2025 – Dec 2026</td><td class="num">Jan 2025 – Dec 2026</td></tr>
           <tr><td>Transactions per alert, median</td><td class="num">461</td><td class="num">460.5</td></tr>
           <tr><td>Transactions per alert, 99th percentile</td><td class="num">1,350</td><td class="num">1,361</td></tr>
-          <tr><td>History before the alert date</td><td class="num">180 days</td><td class="num">180 days</td></tr>
+          <tr><td>Lookback window before the alert date</td><td class="num">180 days</td><td class="num">180 days</td></tr>
           <tr><td>Escalated</td><td class="num">2,405 (17.2%)</td><td class="num">hidden</td></tr>
         </tbody>
       </table>
@@ -188,8 +200,16 @@
       <li>Every alert has transactions, and every transaction belongs to a known alert.</li>
       <li>Alert IDs, file order and alert dates carry no information about the label (AUC 0.50 to 0.51).</li>
       <li>No transaction appears under two alerts, so every alert is an independent history and there is no prior-alert history to recover.</li>
-      <li>The test set is a random 30% of alerts. Every ID decile and every quarter holds about 30% test alerts, and train and test cover the same two years, so cross-validation on shuffled, stratified folds faces the same task as the hidden test.</li>
+      <li>The test set is a random 30% of alerts over the same two years, as the next view shows.</li>
     </ul>
+
+    <h3>How the test set was drawn</h3>
+    <p>If the hidden test set were a later period, or a different kind of alert, cross-validation on training alerts would misjudge the score. Two checks rule that out. Week by week, train and test alerts rise and fall together, and the weekly test share stays inside the band a random 30% draw would produce in 101 of 105 weeks. A classifier trained to tell test alerts from training alerts, on 29 per-alert totals, scores an AUC of 0.497, no better than a coin.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F02_alerts_per_week_train_test.png"><img src="figures/F02_alerts_per_week_train_test.png" width="1656" height="535" alt="Two panels. Left: alerts per week from January 2025 to January 2027 for train and test; both lines step up in July 2025 and step down in April and July 2026, with test at roughly 30% of the combined level. Right: the weekly test share scattered around 0.30 inside a grey 95% band for a random 30% draw; the title gives adversarial AUC 0.497."></a>
+      <figcaption><strong>Train and test alerts over time.</strong> Left: alerts per week. Right: the weekly test share against the 95% band expected from a random 30% draw, with the adversarial AUC (train vs test) in the title.</figcaption>
+    </figure>
+    <p class="takeaway">The test set is a random sample of the same alerts, so shuffled, stratified cross-validation on the training alerts faces the same task as the hidden test. No time-based or drift correction is needed.</p>
   </section>
 
   <section id="history" class="section">
@@ -198,20 +218,20 @@
     <p>With the data checked, the next question was what the months before an alert look like. Three views changed our plan the most.</p>
 
     <div class="stats wide">
-      <div class="stat"><b>180 days</b><span>of history before every alert date</span></div>
+      <div class="stat"><b>180 days</b><span>common lookback window before each alert date</span></div>
       <div class="stat"><b>≈ 8%</b><span>of all transactions sit in the last hour before the alert date</span></div>
       <div class="stat"><b>31</b><span>median transactions in that pre-alert burst</span></div>
       <div class="stat"><b>0</b><span>transactions after the alert date</span></div>
     </div>
 
     <h3>Months of background, then a burst</h3>
-    <p>Every history covers the same 180 days before the alert date, and nothing is recorded after it. Background activity forms a slow hump: about 2 transactions per alert per day six months out, a peak of about 3 around four months out, then a steady decline to about 1 per day in the final week. In the last minutes before the alert date begins, activity jumps to about 40 transactions.</p>
+    <p>Transactions are observed within a common 180-day lookback window before the alert date, and nothing is recorded after it. For the median alert the earliest transaction sits exactly 180 days out, and for 95% of alerts at least 170 days out. Background activity forms a slow hump: about 2 transactions per alert per day six months out, a peak of about 3 around four months out, then a steady decline to about 1 per day in the final week. In the last minutes before the alert date begins, activity jumps to about 40 transactions.</p>
     <figure class="wide">
       <a class="frame" href="figures/F00b_relative_time.png"><img src="figures/F00b_relative_time.png" width="1481" height="566" alt="Two panels. Left: transactions per alert per day against days before the alert date on a log scale; train and test overlap, a gentle hump peaks around 120 days and falls to about 1 per day, then spikes to about 40 at day zero. Right: density of transactions in the last hour before midnight on a log scale; almost all mass sits in the last three minutes."></a>
       <figcaption><strong>Activity relative to the alert date.</strong> Left: transactions per alert per day (log scale); train and test lie on top of each other. Right: the last hour before the alert date, by minutes before midnight (log scale). Almost everything falls in the final three minutes.</figcaption>
     </figure>
-    <p>The burst is dense: its median transaction lands 1.5 minutes before midnight and 99% fall within 3 minutes. Inside it, 17% of rows share the exact second with another transaction of the same alert, against 0.04% everywhere else. 152 alerts (1%) have no burst, and 21 carry it just after midnight on the alert date itself.</p>
-    <p class="takeaway">We read the burst as the activity that triggered the rule, the <strong>trigger window</strong>, and the months before it as the customer's <strong>background</strong>. An analyst asks how different the trigger is from the customer's normal, so our features describe both, and above all the change between them.</p>
+    <p>The burst is dense: its median transaction lands 1.5 minutes before midnight and 99% fall within 3 minutes. Inside it, 17% of rows share the exact second with another transaction of the same alert, against 0.04% everywhere else. 152 alerts (1%) have no burst, and 21 carry it just after midnight on the alert date itself. The burst also has its own make-up: 60% card payments against 53% in the background, fewer transfers (32% against 40%) and a mean amount index of −0.50 against −0.10. It is a rapid run of small card payments.</p>
+    <p class="takeaway">We read the burst as the activity that triggered the rule, the <strong>trigger window</strong>, and the months before it as the customer's <strong>background</strong>. An analyst asks how different the trigger is from the customer's normal. That makes the burst, particularly relative to each alert's own background, our main behavioral hypothesis. The audit shows its structure, not yet whether it separates escalated from dismissed alerts; section 05 tests that.</p>
 
     <h3>No daily or weekly rhythm</h3>
     <p>Hours 0 to 22 each hold 3.8% of transactions and every weekday holds 14.3%: the timestamps carry no daily or weekly pattern. Hour 23 holds 11.7%, three times any other hour, but that is the pre-alert burst, not night-time behavior.</p>
@@ -229,6 +249,14 @@
     </figure>
     <p>Only four values repeat exactly among seven million rows, and each is the maximum of one transaction type. Amounts are capped per type, and there is no sign of round-amount heaping. The shape fits a transformed log-amount, but the exact transform is unknown, so we treat <code>exp(index)</code> only as an experimental feature and do not read it as money.</p>
     <p class="takeaway">A single global threshold would mostly flag international transfers. "Large" has to be judged within each channel, for example as the share of transactions above that channel's own 95th percentile.</p>
+
+    <h3>Over the calendar</h3>
+    <p>Weekly transaction volume rises from July 2024, when the earliest histories begin, peaks in late 2025 and falls through 2026. That shape simply follows how many alerts' 180-day windows cover each week, and train and test move in parallel. What customers do does not drift: card payments hold 51% to 58% of a week, transfers 35% to 42%, cash 5.6% to 7.1% and international transfers 0.3% to 0.6%, in both sets.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F05_weekly_transactions_by_type.png"><img src="figures/F05_weekly_transactions_by_type.png" width="1663" height="535" loading="lazy" alt="Two panels. Left: transactions per week from July 2024 to January 2027 for train and test, rising to a peak in late 2025 and falling through 2026, with test at about 30% of the combined level. Right: the share of card, bank transfer, cash and international transactions per week on a log scale, flat over time, with train and test lines overlapping."></a>
+      <figcaption><strong>Transactions over calendar time.</strong> Left: transactions per week, train and test; the dashed line marks the first alert date. Right: the share of each transaction type per week (log scale), train solid and test dotted.</figcaption>
+    </figure>
+    <p class="takeaway">Calendar time adds nothing that the alert's own window does not already describe, so we build no calendar-time features.</p>
   </section>
 
   <section id="target" class="section">
@@ -241,11 +269,93 @@
       <span class="seg escalated" style="width: 17.2%">2,405</span>
     </div>
     <p class="legend"><span class="dot dismissed"></span>Dismissed 82.8% <span class="dot escalated"></span>Escalated 17.2%</p>
-    <p>2,405 of the 14,000 training alerts were escalated, about one for every 4.8 dismissed. That is imbalanced but not rare. AUC depends only on ranking, so we don't resample; instead every split is stratified on the label.</p>
+    <p>2,405 of the 14,000 training alerts were escalated, about one for every 4.8 dismissed. That is imbalanced but not rare. AUC depends only on ranking, so we don't resample; instead every split is stratified on the label. Before any comparison between the classes, the labeled alerts were split once: 11,200 development alerts in five fixed folds, and a 2,800-alert holdout that stays closed until the model is frozen. Every view below uses the development set only.</p>
+
+    <h3>Stable over time, whatever the workload</h3>
+    <p>If the escalation policy had changed during the two years, old alerts would teach the model the wrong rule. It did not change. The monthly escalation rate moves between 13.6% and 20.7% with no step and no trend: a test of all 24 months against one common rate gives p = 0.14, and 2025 and 2026 escalate at 17.0% and 17.3%.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F01_target_and_monthly_rate.png"><img src="figures/F01_target_and_monthly_rate.png" width="1739" height="535" alt="Two panels. Left: bar chart of 11,595 dismissed (82.8%) and 2,405 escalated (17.2%) labeled alerts. Right: monthly escalation rate on the development set from January 2025 to December 2026 with a shaded 95% interval, fluctuating between about 0.14 and 0.21 around a dashed line at 0.172; grey bars behind it show monthly alert volume stepping up in July 2025 and down in April and July 2026."></a>
+      <figcaption><strong>Target and escalation rate over time.</strong> Left: all 14,000 labeled alerts. Right: monthly escalation rate on the development set with a 95% Wilson interval; grey bars show development alerts per month (right axis).</figcaption>
+    </figure>
+    <p>The grey bars show the alert volume moving in steps: up by about 60% in July 2025, then down in April and again in July 2026. The rate does not follow it. Days range from 8 to 55 alerts, and the busiest tenth of days escalates at 17.1% against 18.2% for the quietest tenth (AUC 0.49). The calendar does not matter either: weekday (p = 0.45), the last three days of a month (p = 0.63) and the days around Navruz, Independence Day and both hayits (p = 0.53) all escalate at the usual rate.</p>
+    <p class="takeaway">Escalation depends on the alert, not on when it was raised or how busy that day was. We keep stratified folds without time ordering and build no date, calendar or workload features.</p>
+
+    <h3>How we compared the classes</h3>
+    <p>From here on every comparison uses the 11,200 development alerts only. Each alert is summarized once, so long histories do not dominate, and the classes are compared with distribution curves and with the escalation rate by decile, each with a 95% interval. With 1,924 escalated and 9,276 dismissed alerts, a single AUC between 0.486 and 0.514 cannot be told from chance. We screened about 120 variables, so a handful land just outside that band by luck; we act only on effects well beyond it, or on ones that repeat across views.</p>
+
+    <h3>The burst does not separate the classes</h3>
+    <p>The audit left one main hypothesis: the burst right before an alert, judged against the customer's own background, is what analysts react to. We tested it with a compact set of 13 variables that describe the burst itself (size, direction, channel, amount, speed) or its change from the background.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F04_trigger_test_by_decile.png"><img src="figures/F04_trigger_test_by_decile.png" width="2542" height="1288" loading="lazy" alt="Thirteen small panels, one per trigger variable, each showing the escalation rate by decile with 95% intervals. Every curve stays flat around the dashed 17.2% line; the panel titles give AUCs between 0.470 and 0.528."></a>
+      <figcaption><strong>The trigger-window test.</strong> Escalation rate by decile of each of the 13 trigger variables, development set, with 95% intervals; the dashed line is the overall 17.2%.</figcaption>
+    </figure>
+    <p>None of them separates escalated from dismissed alerts on its own. All 13 AUCs lie between 0.470 and 0.528, and the decile curves stay flat around the 17.2% line. The burst's size relative to the background, the lead candidate, scores 0.494. Used together in one model, the 13 variables reach a cross-validated AUC of 0.547, below the 0.614 of simple 180-day totals. The one variable that stands out a little, the burst's mean amount (0.470), does so only because it carries the alert's general amount level: its change from the background scores 0.513.</p>
+    <p class="takeaway">The burst is what every alert has in common, not what sets escalated alerts apart. It stays in the model only as a compact, low-priority family.</p>
+
+    <h3>A little more activity, but no build-up</h3>
+    <p>If behavior changed in the weeks before an escalated alert, the class curves would separate as the alert approaches. They do not. Both classes follow the same slow hump, and escalated alerts simply run about 5% higher on every day from six months out to two days before the alert (median ratio 1.055), with no build-up at the end. Their median background holds 447 transactions against 415 (AUC 0.527).</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F06_background_activity_by_class.png"><img src="figures/F06_background_activity_by_class.png" width="1601" height="566" loading="lazy" alt="Two panels. Left: transactions per alert per day from 180 to 2 days before the alert date for dismissed and escalated alerts; both curves rise to about 3 a day around four months out and fall to about 1, with the escalated curve slightly above. Right: the ratio escalated over dismissed per day, hovering around 1.05 with no upward trend towards the alert."></a>
+      <figcaption><strong>Background activity before the alert, by class.</strong> Left: transactions per alert per day, development set. Right: escalated divided by dismissed for each day, with a 15-day moving average.</figcaption>
+    </figure>
+    <p class="takeaway">Activity enters the model as a level. No particular pre-alert window stands out, so 7-, 30- and 90-day windows stay as default candidates only.</p>
+
+    <h3>Direction, channels and speed</h3>
+    <p>Pass-through, money that arrives and leaves again quickly, is a classic laundering pattern. Escalated alerts lean that way, but only slightly: their bursts are a little more outgoing (AUC 0.528), outflows within 24 hours of an inflow are a little more common (0.526), and the time from an inflow to the next outflow is a little shorter (0.478).</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F07_incoming_outgoing_by_class.png"><img src="figures/F07_incoming_outgoing_by_class.png" width="1725" height="586" loading="lazy" alt="Three panels. Left: distribution curves of the outgoing share of the trigger window for dismissed and escalated alerts, almost on top of each other. Middle and right: escalation rate by decile of the change in outgoing share and of the share of outflows within 24 hours of an inflow, both close to flat with a slight rise."></a>
+      <figcaption><strong>Incoming and outgoing behavior, by class.</strong> Left: outgoing share of the trigger window. Middle: escalation rate by decile of trigger minus background outgoing share. Right: by decile of the share of outflows within 24 hours of an inflow.</figcaption>
+    </figure>
+    <p>The channel mix tells even less. The burst has more card payments and fewer transfers than the background, but that shift is the same for both classes, and every channel share and change in share scores between 0.476 and 0.527. Burst speed (same-second share, transactions per minute, gaps) scores 0.480 to 0.514, and the order in which channels follow each other stays within 0.03 of chance.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F08_channel_mix_by_class.png"><img src="figures/F08_channel_mix_by_class.png" width="2217" height="638" loading="lazy" alt="Two panels. Left: stacked bars of the mean channel mix per alert for background and trigger, each split into dismissed and escalated; the bars pair up by part, not by class. Right: univariate AUC for each of the eight channels, background share and trigger-minus-background change, all between about 0.48 and 0.53 around a grey chance band."></a>
+      <figcaption><strong>Channel mix, by class.</strong> Left: mean share of each direction and type per alert, background and trigger window. Right: univariate AUC of each channel's background share and of its change in the trigger window; the grey band is chance.</figcaption>
+    </figure>
+
+    <h3>Where the classes differ: transfer amounts</h3>
+    <p>Amounts are compared on each channel's own scale: every transaction's index is expressed in standard deviations from the mean of its direction and type. On that scale, escalated alerts make smaller bank transfers, 0.15 standard deviations smaller outgoing (AUC 0.426) and 0.12 smaller incoming (0.439), while their card and cash payments differ by 0.06 or less. The gap is a stable trait, not a change before the alert: outgoing transfers are 0.10 to 0.13 standard deviations smaller in every period from six months out to the burst itself.</p>
+    <p>An alert's amounts also move together across channels: a customer with large card payments tends to make large transfers too. Measured against the alert's own card spending, the transfer gap sharpens into the strongest single signal we found.</p>
+    <figure class="wide">
+      <a class="frame" href="figures/F09_amounts_by_channel_and_class.png"><img src="figures/F09_amounts_by_channel_and_class.png" width="2539" height="654" loading="lazy" alt="Three panels. Left: horizontal bars of the escalated-minus-dismissed difference in background amount for each of eight channels, clearly negative for bank transfers and international transfers, near zero for card and cash. Middle: heatmap of escalation rate by quintile of outgoing card size and outgoing transfer size, highest where transfers are small and card payments large. Right: escalation rate by decile of outgoing transfer minus outgoing card size, falling from about 25% to 9%."></a>
+      <figcaption><strong>Amounts by channel and class.</strong> Left: background amount, escalated minus dismissed, in channel standard deviations with 95% intervals. Middle: escalation rate by quintile of outgoing card and outgoing transfer size (cells under 50 alerts left blank). Right: escalation rate by decile of outgoing transfer minus outgoing card size.</figcaption>
+    </figure>
+    <p>For the middle fifth of card spending, the escalation rate falls from 25% for the smallest transfers to 4% for the largest. Across deciles of outgoing transfer size minus outgoing card size, it falls from about 24% to 9.3%, an AUC of 0.603 with smaller values meaning more escalation.</p>
+    <p>Three illustrative alerts show how the measure is read. Each value is the alert's mean in standard deviations of its own channel.</p>
+    <div class="table-wrap">
+      <table class="decisions example">
+        <thead>
+          <tr><th>Alert</th><th class="num">Outgoing transfers</th><th class="num">Outgoing cards</th><th class="num">Transfer − card</th><th>Escalated at this level</th></tr>
+        </thead>
+        <tbody>
+          <tr><td data-label="Alert">A</td><td class="num" data-label="Outgoing transfers">−0.19</td><td class="num" data-label="Outgoing cards">+0.44</td><td class="num" data-label="Transfer − card">−0.63</td><td data-label="Escalated at this level">about 24–25%</td></tr>
+          <tr><td data-label="Alert">B</td><td class="num" data-label="Outgoing transfers">+0.58</td><td class="num" data-label="Outgoing cards">−0.15</td><td class="num" data-label="Transfer − card">+0.73</td><td data-label="Escalated at this level">about 9%</td></tr>
+          <tr><td data-label="Alert">C</td><td class="num" data-label="Outgoing transfers">−0.19</td><td class="num" data-label="Outgoing cards">−0.63</td><td class="num" data-label="Transfer − card">+0.44</td><td data-label="Escalated at this level">about 9–12%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Alert A transfers small amounts for a customer who spends above average by card, which is the risky pattern. Alert C transfers exactly as little, but its card payments are small too, so for this customer the transfers are normal. The pattern recalls structuring, but the data cannot tell us why analysts escalate it.</p>
+    <p class="takeaway">This becomes the main feature family: amount levels per channel, and relative sizes across channels, above all transfers against the alert's own card level.</p>
+
+    <h3>What held up</h3>
+    <div class="table-wrap wide">
+      <table class="decisions">
+        <thead>
+          <tr><th>Hypothesis</th><th>Development set</th><th>Verdict</th></tr>
+        </thead>
+        <tbody>
+          <tr><td data-label="Hypothesis">The burst, or its change from the background, drives escalation</td><td data-label="Development set">13 variables at AUC 0.470 to 0.528; together 0.547</td><td data-label="Verdict">Not supported on its own</td></tr>
+          <tr><td data-label="Hypothesis">Activity builds up before escalated alerts</td><td data-label="Development set">Same curve shape, a steady 5% gap</td><td data-label="Verdict">A level, no build-up</td></tr>
+          <tr><td data-label="Hypothesis">Faster or more concentrated bursts</td><td data-label="Development set">AUC 0.480 to 0.514</td><td data-label="Verdict">Not supported</td></tr>
+          <tr><td data-label="Hypothesis">Money passes through quickly</td><td data-label="Development set">AUC 0.526 to 0.528</td><td data-label="Verdict">Right direction, small</td></tr>
+          <tr><td data-label="Hypothesis">The channel mix or transaction order shifts</td><td data-label="Development set">AUC 0.476 to 0.527; order within 0.03 of chance</td><td data-label="Verdict">Not supported</td></tr>
+          <tr><td data-label="Hypothesis">Amounts are unusual within a channel</td><td data-label="Development set">Transfers smaller; transfer minus card AUC 0.603</td><td data-label="Verdict"><strong>Supported: the main signal</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
 
     <div class="pending">
       <span class="pill">In progress</span>
-      <p>Escalation rate over time, alerts per week in train and test, and the comparisons between escalated and dismissed alerts: background activity, the trigger window against the background, incoming vs outgoing behavior, channel mix, channel-relative amounts and burst compression. All class comparisons use the development set only, never the holdout.</p>
+      <p>A close reading of the alerts that the first behavioral model gets most wrong.</p>
     </div>
   </section>
 
@@ -259,10 +369,14 @@
           <tr><th>What we saw</th><th>What we do</th></tr>
         </thead>
         <tbody>
-          <tr><td data-label="What we saw">The test set is a random 30% of alerts over the same two years</td><td data-label="What we do">Stratified, shuffled K-fold cross-validation instead of a time split</td></tr>
+          <tr><td data-label="What we saw">The test set is a random 30% of alerts over the same two years, and a classifier cannot tell it from train (AUC 0.497)</td><td data-label="What we do">Stratified, shuffled K-fold cross-validation instead of a time split</td></tr>
+          <tr><td data-label="What we saw">The escalation rate is flat over 24 months and does not move with daily workload or the calendar</td><td data-label="What we do">No time-ordered folds, and no date, calendar or workload features</td></tr>
           <tr><td data-label="What we saw">No transaction is shared between alerts</td><td data-label="What we do">Treat every alert as independent: no grouped folds, no linked-alert features</td></tr>
-          <tr><td data-label="What we saw">Fixed 180-day history, nothing after the alert date</td><td data-label="What we do">One pipeline, with every window measured backwards from the alert date</td></tr>
+          <tr><td data-label="What we saw">A common 180-day lookback window, nothing after the alert date</td><td data-label="What we do">One pipeline, with every window measured backwards from the alert date</td></tr>
           <tr><td data-label="What we saw">A dense burst right before every alert</td><td data-label="What we do">Split each history into background (2 or more days before) and trigger window (the last day), and describe both and the change between them</td></tr>
+          <tr><td data-label="What we saw">The burst and its change from the background do not separate the classes (AUC 0.470 to 0.528)</td><td data-label="What we do">Trigger features only as a compact, low-priority family</td></tr>
+          <tr><td data-label="What we saw">Escalated alerts make smaller bank transfers for their own card level, at every lag</td><td data-label="What we do">Main feature family: amount levels per channel and relative sizes across channels</td></tr>
+          <tr><td data-label="What we saw">Escalated alerts are about 5% more active at every lag, with no build-up</td><td data-label="What we do">Background counts as a level; no special pre-alert window</td></tr>
           <tr><td data-label="What we saw">The burst lasts about 3 minutes, while the day before also holds ordinary transactions</td><td data-label="What we do">Measure timing features (compression, silence before the burst) on the last hour only</td></tr>
           <tr><td data-label="What we saw">No daily or weekly rhythm</td><td data-label="What we do">No hour-of-day or weekday features</td></tr>
           <tr><td data-label="What we saw">Each payment channel sits at its own amount level</td><td data-label="What we do">Channel-relative thresholds and deviations per direction and type</td></tr>
@@ -273,16 +387,27 @@
       </table>
     </div>
 
-    <h3>Feature families under test</h3>
+    <h3>Baseline: what totals alone can do</h3>
+    <p>Before any behavioral feature, we trained a deliberately simple reference: LightGBM on 29 totals per alert (count, sum, mean, spread and maximum of the amount index over the whole 180-day window, plus count, sum and maximum for each of the eight direction × type channels), scored on the five development folds.</p>
+    <div class="stats wide">
+      <div class="stat"><b>0.614</b><span>cross-validated AUC, folds 0.585 to 0.632</span></div>
+      <div class="stat"><b>0.228</b><span>Gini (2 × AUC − 1)</span></div>
+      <div class="stat"><b>5–86</b><span>trees kept by early stopping, per fold</span></div>
+      <div class="stat"><b>0.556</b><span>AUC of the best single total on its own</span></div>
+    </div>
+    <p>The baseline already tells us something useful. Early stopping ends after very few trees, and no single total gets far above chance, so we are feature-limited rather than model-limited: tuning this model would change little. Its best single total is already a bank-transfer amount; the behavioral analysis above shows why, and what a sharper version looks like.</p>
+    <p class="takeaway">Every feature family is judged against this baseline on the same frozen folds. A family stays when adding it improves the out-of-fold AUC; a single feature does not have to beat 0.614 on its own, since one with a univariate AUC of 0.52 can still add information the totals lack.</p>
+
+    <h3>Feature families under test, in priority order</h3>
     <ul class="families">
-      <li><strong>Standard windows</strong> Counts and amount statistics for the trigger window and for 7-, 30-, 90- and 180-day background windows, split by direction and type.</li>
-      <li><strong>Trigger vs background</strong> The trigger's transaction rate relative to the background daily rate, and the change in cash, international and outgoing share and in amount level.</li>
-      <li><strong>Channel-relative amounts</strong> Counts and shares above each channel's own 95th and 99th percentile, and deviation from the channel mean.</li>
-      <li><strong>Flow and pass-through</strong> How quickly money leaves after it arrives, the incoming-to-outgoing ratio, and the spread of cash deposits.</li>
-      <li><strong>Burst compression</strong> Same-second share, transactions per minute and gaps inside the burst.</li>
-      <li><strong>Rhythm and sequences</strong> Gaps in the background, silence before the burst, and transitions between direction-and-type states.</li>
+      <li><strong>1 · Channel-relative amounts</strong> The main family. Per-channel background mean, spread and share above the channel's own 95th percentile, in channel standard deviations, plus relative sizes across channels, above all transfers against the alert's own card level.</li>
+      <li><strong>2 · Windows and activity level</strong> Counts and amount statistics per direction and type for the trigger window and for 7-, 30-, 90- and 180-day background windows.</li>
+      <li><strong>3 · Flow and pass-through</strong> How quickly money leaves after it arrives, the incoming-to-outgoing ratio, the outgoing share and the spread of cash deposits.</li>
+      <li><strong>4 · Trigger vs background</strong> Low priority. A compact set: the trigger's rate relative to the background, and the change in outgoing, cash and international share and in amount level.</li>
+      <li><strong>5 · Burst compression</strong> Low priority. Same-second share, transactions per minute and gaps inside the burst.</li>
+      <li><strong>6 · Rhythm and sequences</strong> Low priority. Gaps in the background, silence before the burst, and transitions between direction-and-type states.</li>
     </ul>
-    <p>A hypothesis is not a feature until cross-validation agrees. Early checks suggest that the raw size of the burst separates escalated from dismissed alerts only weakly, so the main hypothesis is the change from the customer's own background.</p>
+    <p>The behavioral analysis set this order: channel-relative amounts first, the trigger family last. The order decides where the effort goes, not what is kept. Every family, including the low-priority ones, still has to improve the cross-validated AUC to stay.</p>
 
     <div class="pending">
       <span class="pill">In progress</span>
@@ -295,10 +420,13 @@
     <h2>Conclusion</h2>
     <h3>Findings so far</h3>
     <ul>
-      <li>The data is clean, and the test set is a random sample of alerts, so stratified cross-validation mirrors the hidden test.</li>
-      <li>Every alert follows the same pattern: 180 days of slowly declining background activity, then a dense burst of transactions in the minutes before the alert date.</li>
+      <li>The data is clean, and the test set is a random sample of the same alerts (adversarial AUC 0.497), so stratified cross-validation mirrors the hidden test.</li>
+      <li>17.2% of alerts are escalated, and the rate is stable over two years, independent of daily workload and the calendar.</li>
+      <li>Every alert follows the same pattern: slowly declining background activity across a common 180-day lookback window, then a dense burst of transactions in the minutes before the alert date. That burst is what every alert has in common, not what sets escalated alerts apart: 13 trigger variables score AUC 0.470 to 0.528.</li>
       <li>Clock time carries no signal. Time only matters relative to the alert.</li>
       <li>Amounts share one scale, but each payment channel sits at a different level, so "large" has to be judged within the channel.</li>
+      <li>What sets escalated alerts apart is a steady trait of the whole history: bank transfers that are small for the alert's own card spending (AUC 0.603), with a little more activity and a slight lean towards pass-through.</li>
+      <li>Totals over the whole window reach a cross-validated AUC of 0.614. The model is feature-limited, so gains have to come from better features, led by channel-relative amounts.</li>
     </ul>
 
     <div class="pending">
@@ -312,7 +440,7 @@
 <footer class="site-footer">
   <div class="footer-inner">
     <p><strong>Team RYM</strong> · Dilshod A'zamjonov, ML engineer · Ulugbek Bakhtiyorov, Backend engineer · Rakhmatilla Erkinov, Frontend engineer</p>
-    <p>WIUT Hackathon 2026, FinTech track. All numbers and figures on this page are aggregates produced by our reproducible notebook; no raw competition data is published here.</p>
+    <p>WIUT Hackathon 2026, FinTech track. All numbers and figures on this page are aggregates produced by our reproducible notebook; the three example alerts in section 05 are illustrative, not real alerts. No raw competition data is published here.</p>
   </div>
 </footer>
 

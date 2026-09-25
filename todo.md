@@ -41,7 +41,7 @@ Source: `phase1_required_changes_with_holdout.md` (§ numbers below refer to it)
 
 - **Burst core for timing features.** Within `lag_days <= 1`, 7,200 of 14,000 train alerts also carry at least one ordinary background transaction. That pushes the median trigger duration from 2.8 min (last hour only) to 135 min. Compression and dormancy features therefore use `secs_before <= 3600` (`BURST_SECS`); composition features keep the review's `lag_days <= 1`. Checked in 3.5.
 - **No coefficient of variation on the raw index.** The index is centred near 0 (mean −0.13), so std / mean blows up. Structuring uses std, IQR and range of cash-in amounts instead (CV is fine only on `exp(index)`, which is P2).
-- **`recency_days` and `history_span_days` are dropped.** With a fixed 180-day lookback and a trigger at lag ≤ 1 in 99% of alerts, they are near-constant by construction.
+- **`recency_days` and `history_span_days` are dropped.** With a common 180-day lookback window and a trigger at lag ≤ 1 in 99% of alerts, they are near-constant by construction.
 - **Pre-registered holdout warning rule.** A drop of dev OOF − holdout AUC ≥ 2 bootstrap SE (≈ 0.025 at 481 holdout positives) raises a warning; the rule is written in `decisions.md` before the one scoring. It is a warning threshold, not a formal proof that the model generalizes: passing it only means the check found no sign of selection overfit.
 - **Split before any further label-based EDA.** The 80/20 split is task 2.2, straight after the target count, so every later by-class view, screen and error analysis runs on dev only.
 - **No net flow in index units.** The index is not money (§9), so flow uses counts, shares, timing and channel-relative sizes.
@@ -137,7 +137,7 @@ flowchart LR
 ```
 
 - **The label is an analyst's decision, not proven laundering.** It reflects three things: (a) what the rule saw, (b) recent behavior compared with the customer's normal, and (c) human factors such as workload and policy changes over time. All three are EDA questions.
-- **The data mirrors the analyst's view.** Every history ends with a dense **trigger burst** (median 31 transactions in the last ~3 minutes before the alert date starts), which is the activity the rule saw. The 180-day **background** before it is the customer's normal. The model's job is (b): how different is the trigger from the background?
+- **The data mirrors the analyst's view.** Every history ends with a dense **trigger burst** (median 31 transactions in the last ~3 minutes before the alert date starts), which is the activity the rule saw. The **background** across the 180-day lookback window before it is the customer's normal. The main behavioral hypothesis to test is (b): how different is the trigger from the alert's own background? Its structure is proven, its link to escalation is not yet.
 - **Every alert already passed a rule.** Dismissed alerts are near-misses, not "normal customers", so expect subtle differences. The early class checks in the review (§14) suggest that trigger size and basic trigger mix differ only slightly between classes. Ratios and context usually beat raw volume.
 - **Framing for the website:** published estimates put the false-positive rate of rule-based monitoring around 95–98% (Feedzai paper in §18). A model that ranks the alert queue saves analyst time.
 - **Limitations to state on the website.** Compared with a real bank, the data has no KYC or risk rating, no counterparties, no balances, no rule or scenario code, and no customer ID. No transaction row appears under more than one alert, so prior-alert history cannot be recovered either: every alert is an independent unit. Amounts are an index with an unknown transform, not money.
@@ -340,7 +340,7 @@ flowchart TD
     K1 -->|yes, 0 duplicates| K2{Alerts without<br/>transactions?}
     K2 -->|none in train or test| K3{Exact duplicate<br/>transaction rows?}
     K3 -->|0 rows| K4{Transactions after<br/>the alert date?}
-    K4 -->|0 rows, fixed 180-day lookback| K5{Same rows under<br/>several alerts?}
+    K4 -->|0 rows, common 180-day lookback window| K5{Same rows under<br/>several alerts?}
     K5 -->|0 rows| K6{IDs, row order or date<br/>predict the target?}
     K6 -->|no, AUC 0.498 to 0.508| OK[Audit table F00<br/>goes to the website]
 ```
@@ -353,7 +353,7 @@ flowchart TD
 | [x] 🔴 **1.4 Missing & invalid** | 0 nulls, 0 non-finite amounts, no placeholder dates | – |
 | [x] 🔴 **1.5 Duplicates** | 0 exact duplicate rows. Same-second pairs (1.3% of rows) sit almost entirely inside the trigger burst | No keep-vs-dedup branch; duplicate count is constant → not a feature (§12). Same-second → P1 compression (4.6) |
 | [x] 🔴 **1.6 Timestamps** | Naive, second precision; hours 0–22 and all weekdays flat (3.8% / 14.3% each); hour 23 = 11.7% because of the burst | **No hour-of-day or weekday features** (§6); timezone irrelevant |
-| [x] 🔴 **1.7 Relative time** | Fixed 180-day lookback (median 180, p05 170); 0 rows after the alert date. Burst: ~8% of rows, median 31 per alert, last ~3 min before the alert date starts; 152 alerts have none; 21 carry it just after midnight on the alert day (lag 0) | Strict-vs-all branch removed, one pipeline (§7). Trigger window `lag_days <= 1` covers the off-by-one; boundary refined in 3.5 |
+| [x] 🔴 **1.7 Relative time** | Common 180-day lookback window (earliest transaction: median 180 days out, p05 170); 0 rows after the alert date. Burst: ~8% of rows, median 31 per alert, last ~3 min before the alert date starts; 152 alerts have none; 21 carry it just after midnight on the alert day (lag 0) | Strict-vs-all branch removed, one pipeline (§7). Trigger window `lag_days <= 1` covers the off-by-one; boundary refined in 3.5 |
 | [x] 🔴 **1.8 Amount forensics** | One global scale (per-alert means spread with sd 0.49 → not per-alert standardized); near-normal, skew 0.63, floor −2.91; means shift by type and direction. Only 4 exact repeats = the per-type caps (card 4.183, cash 4.863, international 6.430, transfer 6.692) | `VAL = raw`; channel-relative thresholds (§8); `exp(index)` experimental, P2 (§9); no round or exact-repeat features (§10); cap-hit flag P2 |
 | [x] 🔴 **1.9 ID & row-order artifacts** | ID number, file orders and alert date: AUC 0.498–0.508 | Never features; reported as a clean data-quality result |
 | [x] 🟠 **1.10 Shared histories** | 0 transaction rows under more than one alert, in train, test or across | No pseudo-customers, no group CV, no linkage features (§11); the check stays in the notebook |
@@ -418,7 +418,7 @@ flowchart TD
 
 **Tasks**
 
-- [ ] 🔴 **3.1 Background volume by class.** Background transactions per alert (ECDF, log-x). History length is fixed at 180 days, so the old lookback-by-class figure is dropped. → F03
+- [ ] 🔴 **3.1 Background volume by class.** Background transactions per alert (ECDF, log-x). The lookback window is a common 180 days, so the old lookback-by-class figure is dropped. → F03
 - [ ] 🟠 **3.2 Activity over calendar time.** Daily transaction counts, train vs test, by type (no labels). → F05
 - [ ] 🔴 **3.3 Background activity before the alert.** Mean transactions per alert per day for lags 2–180, by class; repeat for amounts and for naqd/xalqaro separately. Where the curves separate sets the background windows (default 7/30/90/180). The trigger (lags 0–1) is reported next to the curve, not on the same axis. → A13, F06
 - [ ] 🔴 **3.4 ★ Trigger-window test (§15).** The compact candidate set on dev:

@@ -624,6 +624,16 @@ tr.total td {
   color: var(--muted);
 }
 
+.decisions.example td:first-child {
+  width: auto;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.decisions.example th {
+  white-space: normal;
+}
+
 /* figures */
 
 .section > figure {

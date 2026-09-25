@@ -1,6 +1,6 @@
 # Alert escalation model — WIUT Hackathon 2026, FinTech track
 
-Predict the probability that an automated financial-monitoring alert (`signal_id`) is escalated, using the alert's 180-day transaction history. Metric: ROC-AUC on the hidden test set. One notebook holds the EDA, the model and the submission.
+Predict the probability that an automated financial-monitoring alert (`signal_id`) is escalated, using the transactions observed in the alert's 180-day lookback window. Metric: ROC-AUC on the hidden test set. One notebook holds the EDA, the model and the submission.
 
 ## Layout
 

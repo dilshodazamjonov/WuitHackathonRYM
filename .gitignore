@@ -1,0 +1,61 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.eggs/
+
+# Virtual environments
+.venv
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+.tox/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+kaggle.json
+
+# Data (everything, tracked dirs kept via .gitkeep)
+data/
+!data/**/.gitkeep
+
+# Models & artifacts
+models/
+checkpoints/
+artifacts/*
+!artifacts/decisions.md
+outputs/
+submissions/
+*.pkl
+*.joblib
+*.h5
+*.onnx
+*.pt
+*.pth
+
+# Logs
+logs/
+*.log
+mlruns/
+wandb/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

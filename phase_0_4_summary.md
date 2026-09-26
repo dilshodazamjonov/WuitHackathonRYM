@@ -1,19 +1,20 @@
-# Phases 0–3 summary: data, validation, baseline and behavioral EDA
+# Phases 0–4 summary: data, validation, baseline, behavioral EDA and features
 
-**Team RYM** · WIUT Hackathon 2026, FinTech track · status as of Fri 25 Sep 2026
+**Team RYM** · WIUT Hackathon 2026, FinTech track · status as of Sat 26 Sep 2026
 
-Phases 0 (setup), 1 (data audit), 2 (target, split and validation) and 3 (behavioral EDA) are done. Phase 4 (EDA-driven features) starts next. Every number below comes from `notebooks/solution.ipynb`, which runs top to bottom in about a minute and gives identical outputs on every run. The two numbers marked *side check* come from quick checks outside the notebook.
+Phases 0 (setup), 1 (data audit), 2 (target, split and validation), 3 (behavioral EDA) and 4 (EDA-driven features) are done. Phase 5 (models and blend) starts next. Every number below comes from `notebooks/solution.ipynb`, which runs top to bottom in about three minutes and gives identical outputs on every run. Numbers marked *side check* come from quick checks outside the notebook.
 
 ## In short
 
 - **The data is clean.** It has no nulls, no duplicate rows, no orphan transactions and no alerts without a history, so no cleaning step is needed.
-- **The test set is a random 30% of alerts from the same two years.** It is not a later period. Test and train cannot be told apart (adversarial AUC 0.497), so ordinary stratified cross-validation estimates the hidden score.
+- **The test set is a random 30% of alerts from the same two years.** It is not a later period. Test and train cannot be told apart (adversarial AUC 0.497 on the totals, 0.500 on all 199 features), so ordinary stratified cross-validation estimates the hidden score.
 - **Escalation is stable.** 17.2% of alerts are escalated, and the rate does not drift over 24 months. Workload, weekday, month-end and public holidays have no effect.
 - **Each history has the same shape.** Transactions are observed within a common 180-day lookback window: slowly declining background activity, then a dense burst in the last minutes before the alert.
-- **The burst is structure, not signal.** Phase 3 tested it as the main behavioral hypothesis. Neither the burst itself nor its change from the alert's background separates escalated from dismissed alerts on its own. The review's 13 trigger variables score AUC 0.470–0.528, and all 13 together reach only 0.547.
-- **The signal is in transfer amounts.** Escalated alerts make smaller bank transfers, at every point in the six months, while card and cash amounts barely differ. Measured against the alert's own card spending, the gap is the strongest single signal found (AUC 0.397, i.e. 0.603 in the other direction): escalation falls from about 24% to 9% across its deciles.
-- **Baseline: AUC 0.614 (Gini 0.228) on the development folds.** It uses only totals over the 180-day window. Very few trees and a best single total of 0.556 show we are feature-limited, not model-limited. A new feature family is kept when adding it improves this OOF AUC on the frozen folds.
-- **A valid submission file already exists:** `submissions/team_486052EC.csv`. It passes every format check.
+- **The burst is structure, not signal.** Phase 3 tested it as the main behavioral hypothesis: neither the burst nor its change from the alert's background separates the classes on its own (13 trigger variables at AUC 0.470–0.528). Phase 4 confirmed it inside the model: the trigger family adds −0.0001 AUC on top of the amounts.
+- **The signal is in amounts measured on their own channel's scale.** Escalated alerts make bank transfers that are small for their own card spending (AUC 0.397). Phase 4 found the mirror image in cash: incoming cash that is large for the alert's card level goes with escalation (AUC 0.549).
+- **Features lift the model from 0.614 to 0.637** (Gini 0.228 → 0.274) on the development folds. Almost all of the gain comes from one family, the channel-relative amounts (+0.019). Six of the nine families tested add nothing and are dropped. The frozen set has 72 features.
+- **The model's confident errors are mirror images of the other class.** They are not a pattern a missing feature would catch.
+- **A valid submission file already exists:** `submissions/team_486052EC.csv`, from the baseline. It passes every format check.
 
 ## The data
 
@@ -147,36 +148,152 @@ The submission has one row per test alert with the escalation probability. It is
 - **The interaction is visible directly.** In the middle card-size quintile, escalation falls from 25% for the smallest transfers to 4% for the largest. For mid-sized transfers, it rises from 13% with the smallest card payments to 24% with the largest.
 - **Across deciles** of the relative measure, the escalation rate runs from about 24% down to 9.3%, about 2.5 times apart.
 - **How we read it:** escalated alerts move money by bank transfer in smaller amounts than their own card spending would suggest. The pattern recalls structuring, but the data cannot say why analysts escalate it.
-- **Expected lift** (*side check*, not in the notebook): LightGBM on the per-channel background amounts alone reached a CV AUC of 0.630, above the 0.614 baseline. This is an expectation for Phase 4, not a result.
+- **Confirmed in Phase 4:** adding the amounts family to the baseline lifts the development CV AUC from 0.614 to 0.633 (see below).
 
 ### Decisions logged
 
 - **Trigger boundary:** `lag_days <= 1` for counts, shares and amounts. Its AUCs are within 0.002 of the last-hour core, and it also catches the 10 early bursts. The last-hour core is used for timing.
 - **Background windows:** no window is special, so 7, 30 and 90 days stay as default candidates only.
-- **Error analysis** of the model's most confident misses waits for the first behavioral model.
+- **Error analysis** of the model's most confident misses: done in Phase 4, on the first behavioral model.
+
+## Features and ablation (Phase 4)
+
+### How the features were built
+
+- **One builder for train and test.** `build_features()` turns every history into one row with the same code for both sets.
+- **No labels in the features.** Channel statistics (mean, sd, p95, p99 and the per-type cap for each direction × type) come from train and test transactions together.
+- **The baseline stays in.** The 29 totals remain as the reference, and every other feature belongs to one family, so the ablation keeps or drops each family as a whole.
+- **199 features in total.** None is constant or a copy of another, and missing values stay missing rather than imputed.
+- **Left out on purpose:** alerts per day and the alert-date calendar, because Phase 2 showed they carry no signal.
+
+| Family | Features | What it holds |
+|---|---|---|
+| base | 29 | the baseline totals |
+| amounts | 30 | per channel: background mean of the channel z-score, share above the channel's p95 and p99; per direction: transfer, international and cash size minus card size |
+| windows | 36 | background counts over lags 2–7, 2–30, 2–90 and 2–180, in total and per channel |
+| typology | 6 | outflows within 24 h of an inflow, hours from inflow to outflow, in/out ratio, spread of incoming cash amounts |
+| trigger | 13 | the trigger-test variables without the timing ones; the rate of the last 7, 30 and 90 days against the whole background |
+| mix | 8 | background share of each channel |
+| compression | 5 | burst timing: same-second share, speed, duration, median gap, silence before the burst |
+| rhythm | 5 | background active days, busiest day, gaps between transactions |
+| sequence | 64 | transition shares between consecutive channels |
+| context | 3 | transactions at a type's cap, `exp(index)` sums for the trigger and the background |
+
+### Screening and drift
+
+- **The strongest single features are all amounts.** The six strongest and ten of the top 20 come from the amounts family. Outgoing transfer minus outgoing card size leads at 0.397, with every fold between 0.375 and 0.430. Even its incoming counterpart (0.433) beats the best baseline total (0.441).
+- **Every other family stays near chance.** Apart from the baseline totals, each family's strongest feature lies within 0.04 of chance; the trigger family's best is 0.030.
+- **No leaks.** The highest information value is 0.13 and the strongest AUC 0.397 (0.603 in the other direction), far from anything that would suggest a leak.
+- **No drift.** The highest PSI is 0.007 (below 0.10 counts as stable), and no feature reaches 0.10. The train-vs-test classifier stays at chance with all 199 features (AUC 0.500), and no feature takes more than 1.3% of its gain.
+
+### Ablation: which families pay off
+
+Families were added one at a time to the 29 totals, in the order the EDA ranked them, on the same five development folds with one seed. A family is kept when the mean fold AUC rises **and** at least 4 of 5 folds improve against the last kept set.
+
+| Family added | Features added | CV AUC after | Change | Folds up | Kept |
+|---|---|---|---|---|---|
+| amounts | 30 | 0.6326 | **+0.0187** | 4 | **yes** |
+| windows | 36 | 0.6312 | −0.0014 | 2 | no |
+| typology | 6 | 0.6306 | −0.0020 | 1 | no |
+| trigger | 13 | 0.6325 | −0.0001 | 2 | no |
+| mix | 8 | 0.6348 | +0.0022 | 4 | yes |
+| compression | 5 | 0.6369 | +0.0021 | 4 | yes |
+| rhythm | 5 | 0.6325 | −0.0044 | 1 | no |
+| sequence | 64 | 0.6334 | −0.0035 | 2 | no |
+| context | 3 | 0.6333 | −0.0036 | 2 | no |
+
+**Frozen feature set (`FEATURES`):** the 29 totals plus amounts, mix and compression, 72 columns.
+
+| Metric | Baseline (29 totals) | Kept set (72 features) |
+|---|---|---|
+| **Development CV AUC** | 0.614 ± 0.016 | **0.637 ± 0.028** |
+| **Gini** | 0.228 | **0.274** |
+| Fold AUCs | 0.617 · 0.625 · 0.611 · 0.632 · 0.585 | 0.640 · 0.665 · 0.609 · 0.670 · 0.601 |
+
+### What the kept model uses
+
+| Family | Features | Share of LightGBM gain |
+|---|---|---|
+| amounts | 30 | 46.8% |
+| base | 29 | 33.3% |
+| mix | 8 | 12.2% |
+| compression | 5 | 7.7% |
+
+The six features with the most gain:
+
+1. **Outgoing transfer minus outgoing card size** (9.8% of gain). Escalation falls from 24–25% in the two lowest deciles to 9% in the highest.
+2. **Incoming cash minus incoming card size** (6.4%). Escalation rises from 12% to about 20% across the deciles.
+3. **Incoming transfer minus incoming card size** (2.7%). It repeats the first pattern more weakly, about 22% down to 12%.
+4. **Background outgoing transfer size** (2.5%). The same pattern again, 23% down to 12%.
+5. **Largest incoming cash amount** (2.4%). Nearly flat on its own (AUC 0.512).
+6. **Background share of incoming cash** (2.3%). Also nearly flat on its own (AUC 0.520).
+
+The last two carry gain only through combinations with other features.
+
+### What stood out
+
+1. **Cash runs the other way from transfers.** This is the one new direction Phase 4 found. Escalated alerts send transfers that are *small* for their own card level, but deposit cash that is *large* for it (AUC 0.549). They also make more outgoing cash transactions (0.541). The model ranks this cash difference second of all 72 features.
+2. **Passing the screen is not the same as adding information.** Twenty-one of the 36 window counts lie outside the chance band, yet the family lowers the model's AUC. The counts that separate the classes, such as outgoing cash (0.539 in the background count), are already in the totals (0.541), so the model gains nothing new.
+3. **The burst adds nothing, even inside the model.** Phase 3 showed the trigger variables are not predictive on their own. Added to the model on top of the amounts, the trigger family changes the AUC by −0.0001 (2 of 5 folds up).
+4. **Pass-through points the right way but does not help.** In Phase 3 the typology variables leaned the expected way (0.526–0.528). As a family they lower the model's AUC (−0.002, 1 of 5 folds up).
+5. **Two families were kept by a hair.** Mix and compression each add +0.002. A side check with other seeds (below) shows the compression gain does not hold up.
+6. **International transfers are strong but mostly missing.** Outgoing international minus card size scores 0.434, one of the strongest features. But two thirds of alerts (67%) never use the channel, so it can help only a third of the queue.
+7. **The fold spread grew.** The kept set's fold AUCs range from 0.601 to 0.670 (± 0.028), against ± 0.016 for the baseline. The amounts gain varies by fold, from −0.002 on the third fold to +0.034 on the second. The fifth fold stays the weakest, as it was for the baseline.
+8. **No drift on any of the 199 features.** This supports the Phase 2 finding that the test set is the same population.
+
+### Error analysis: the confident misses are mirror images
+
+We read the 20 escalated alerts the kept model ranks lowest and the 20 dismissed alerts it ranks highest, out of fold on the development set.
+
+| | 20 escalated ranked lowest | All escalated | All dismissed | 20 dismissed ranked highest |
+|---|---|---|---|---|
+| Model score (median) | 0.064 | 0.180 | 0.155 | 0.445 |
+| Outgoing transfer minus card size | +0.30 | −0.28 | −0.14 | −0.48 |
+| Incoming cash minus card size | −0.14 | +0.01 | −0.05 | +0.12 |
+| Transactions in the history | 310 | 490 | 453 | 664 |
+| Raw outgoing transfers, channel sd | +0.84 | −0.10 | +0.02 | −0.30 |
+
+- **Missed escalations** have short histories in which everything is large: their transfers, and their card payments too (+0.28 outgoing, +0.40 incoming).
+- **Confident false alarms** are long, busy histories whose transfers are far below their card level.
+- **Each group is a stronger version of the other class** on every variable in the table. The model is not missing a pattern these alerts share.
+- **How we read it:** what decided these alerts is probably information outside the transaction history, such as the rule that fired or the customer's profile, and neither is in this data.
+
+### Side checks (outside the notebook)
+
+**Seed stability of the kept families.** The same ablation steps, rerun with LightGBM seeds 7 and 2026 on the same folds:
+
+| Seed | Totals | + amounts | + mix | + compression |
+|---|---|---|---|---|
+| 42 (notebook) | 0.6139 | 0.6326 | 0.6348 | 0.6369 |
+| 7 | 0.6113 | 0.6321 | 0.6350 | 0.6341 |
+| 2026 | 0.6110 | 0.6311 | 0.6356 | 0.6310 |
+
+- **Amounts holds up.** Its gain is +0.019 to +0.021 under every seed.
+- **Mix holds up too, though it is small:** +0.002 to +0.005.
+- **Compression does not.** It gives +0.002, −0.001 and −0.005, so its place in the kept set is one-seed luck.
+- **Amounts alone beats the totals.** The 30 amounts features without the totals reach 0.632.
+- **Shrinkage does not help.** Shrinking the per-alert channel means towards the channel average for short histories (the missed escalations are short) scores 0.635 against 0.637: no effect.
+
+### Decisions
+
+- **`FEATURES` frozen by the rule:** the 29 totals plus amounts, mix and compression, 72 columns, at a development CV AUC of 0.637.
+- **Dropped:** windows, typology, trigger, rhythm, sequence and context. Each lowered the mean fold AUC.
+- **Open for the team:** compression passes the pre-registered rule but fails the seed side check. Either keep it (the rule as written), or recheck mix and compression with the three final seeds in Phase 5 and drop what does not hold.
 
 ## What comes next
 
 | When | Phase | Main question |
 |---|---|---|
-| Sat | 4: EDA-driven features | One feature builder for train and test, in priority order (below). Keep a family when adding it improves the baseline model's OOF AUC on the frozen folds (mean up and at least 4 of 5 folds up). A single feature does not have to beat 0.614 on its own |
-| Sat evening | 5: Modeling | LightGBM + CatBoost, light tuning, rank blend; error analysis on the dev out-of-fold predictions; freeze at 22:00 |
+| Sat evening | 5: Modeling | LightGBM + CatBoost on the 72 features, light tuning, rank blend, stability report; settle the compression question; freeze at 22:00 |
 | Sun 09:00 | 6: Holdout check, once | Development vs holdout AUC against the warning rule |
 | Sun | 6: Final fit and submission | Retrain on all 14,000, validate the CSV, reproduce on a second laptop, submit by 18:00 (deadline 23:59) |
 
-**Phase 4 priorities, from the Phase 3 evidence**
-
-1. **Channel-relative amounts** (main family): per-channel background amount levels and upper-tail shares, plus cross-channel relative sizes, above all transfers against the alert's own card level.
-2. **Activity level:** background counts per channel.
-3. **Typology:** a small family for in-to-out timing and outgoing shares.
-4. **Low priority, tested but not expected to add much:** a compact trigger family, burst compression, channel-mix changes and sequences.
-
-The key question for Phase 4 is whether the channel-relative amount family lifts the OOF AUC clearly above 0.614 on the frozen folds.
+The baseline was feature-limited (5–86 trees per fold). With the new features, Phase 5 checks whether the model side can add anything on top: CatBoost as a blend partner, light tuning, and seed averaging.
 
 ## For the team
 
 **Website (EDA site)**
-- Figures ready in `figures/`, 14 in total:
+- Figures ready in `figures/`, 18 in total:
   - Audit and validation:
     - F00a hour and weekday
     - F00b relative time and the burst
@@ -193,27 +310,37 @@ The key question for Phase 4 is whether the channel-relative amount family lifts
     - F09 amounts by channel and class (**key figure**)
     - F10 burst compression
     - F11 transaction sequences
+  - Features (new):
+    - F12 the six features with the most gain, escalation rate by decile
+    - F13 family ablation: which EDA ideas paid off (**key figure**)
+    - F14 the 25 strongest single features
+    - F15 drift: PSI and the train-vs-test classifier on all features
 - Each figure's finding and action are in `artifacts/insights.json`.
+- New tables for the website: `artifacts/feature_screen.csv` (every feature's AUC, fold range, IV, family) and `artifacts/ablation.csv`.
 - Suggested placement:
-  - F04 and F09 go together in the Target and behavior section: the hypothesis we tested and what the data showed instead.
-  - F03, F06, F07, F08, F10 and F11 fit the same section as supporting views.
-  - F05 fits the transaction history section.
+  - Target and behavior section: F04 and F09 go together (the hypothesis we tested and what the data showed instead). F03, F06, F07, F08, F10 and F11 fit the same section as supporting views.
+  - Transaction history section: F05.
+  - "Features and modeling ideas motivated by EDA" section: F13, then F12 and F14. F13 is the story in one chart: the amounts pay off, and the burst, windows and sequences do not.
+  - Validation section: F15, next to F02.
 - Publish only aggregated figures and numbers: never raw data, never `split.csv`.
 
 **QA and submission**
-- `submissions/team_486052EC.csv` is a valid fallback made from the baseline. The final model will overwrite it.
+- `submissions/team_486052EC.csv` is still the valid fallback made from the baseline. The final model will overwrite it in Phase 6.
 - The notebook's validator checks columns, row count, IDs, missing values, the 0–1 range and the file name.
+- A full run takes about three minutes; two consecutive runs give identical md5 for every figure, artifact and the submission.
 - **Open item:** confirm with the organisers that `486052EC` is our TEAM_ID before we submit.
 
 **Files produced so far**
 
 | File | What it is |
 |---|---|
-| `notebooks/solution.ipynb` | The notebook: Setup, Load, Data audit, Target / split / validation, Behavioural EDA, Exports |
+| `notebooks/solution.ipynb` | The notebook: Setup, Load, Data audit, Target / split / validation, Behavioural EDA, Feature engineering, Screening / drift / ablation, Exports |
 | `artifacts/F00_dataset_overview.csv`, `F00_schema.csv` | Dataset overview and column descriptions |
 | `artifacts/split.csv` | Frozen split and folds (internal only) |
-| `artifacts/cv_log.csv` | Every model run with its fold scores |
+| `artifacts/cv_log.csv` | Every model run with its fold scores, including each ablation step |
+| `artifacts/feature_screen.csv` | Univariate screen of all 199 features |
+| `artifacts/ablation.csv` | Family ablation table |
 | `artifacts/insights.json` | Figure findings for the website |
 | `artifacts/decisions.md` | Every decision with its evidence |
-| `figures/F00a`–`F11` | Fourteen figures (PNG) |
+| `figures/F00a`–`F15` | Eighteen figures (PNG) |
 | `submissions/team_486052EC.csv` | Baseline safety submission |

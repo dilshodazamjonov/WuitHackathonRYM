@@ -584,17 +584,39 @@ flowchart LR
 
 ## 10. Phase 5 — Modeling for max AUC (Sat evening, ~4h) 🔴
 
-Everything here runs on the dev folds. No holdout numbers exist yet.
+Everything here runs on the dev folds. No holdout numbers exist yet. The 80/20 dev/holdout design and the fixed dev folds stay as frozen in Phase 2 (D7): the holdout is scored once, in 6.2, after features, preprocessing, models, hyperparameters and blend are all frozen.
 
-- [ ] 🔴 **5.1 LightGBM** on the frozen dev folds, early stopping on AUC, deterministic mode. Start from `LGB_PARAMS` (A11). Tune lightly, on dev CV only, and only `learning_rate`, `num_leaves`, `min_data_in_leaf` and `feature_fraction`.
-- [ ] 🔴 **5.2 CatBoost** (`CAT_PARAMS`, A11). It is often strong on mid-size tabular data, and its different trees make it a good blend partner.
+The ablation-kept set from Phase 4 (72 features: base, the 29 v0 totals, + amounts, the channel-relative amount family, + mix + compression; dev CV 0.637) is the starting candidate, not the final `FEATURES`. The feature set is chosen first; tuning, CatBoost, the blend and the final seed checks start only once it is frozen.
+
+**Feature selection first** (dev CV only, the confirmation holdout stays closed; about 1h of the ~4h)
+
+- [ ] 🔴 **5.0a Feature-set comparison.** Four fixed candidates on the frozen dev folds, with the untuned `LGB_PARAMS` and each of the three final seeds (`SEEDS = [42, 7, 2026]`):
+  1. amounts only (30 features)
+  2. base + amounts (59)
+  3. base + amounts + mix (67)
+  4. base + amounts + mix + compression, the current kept set (72)
+  - **Compression is provisional.** It passed the 4.13 rule by +0.002 on seed 42, but its gain was −0.001 under seed 7 and −0.005 under seed 2026 (side check, Sat 26). This task brings that check into the notebook.
+  - **Choice rule.** Walk up the list from the smallest set. A larger candidate replaces the current choice only if its mean dev AUC gain is positive under every seed **and** at least 4 of 5 folds improve on the seed-averaged fold AUCs. Otherwise the smaller set counts as matching it and is kept.
+  - **Scope.** A closed check of four fixed candidates, not a new feature search, which is why extra seeds are allowed here (see 5.4). Log every candidate × seed in `cv_log.csv` and the choice in `decisions.md`.
+- [ ] 🟠 **5.0b Pruning.** On the 5.0a winner, with the same folds and seeds (15 fits). This finishes 4.14; the constant and duplicate check already ran in Phase 4 and dropped none of the 199 features.
+  - **Importance stability:** the gain share of every feature in each fold × seed fit, not only the mean.
+  - **Negligible gain:** drop features below 0.2% of the total gain in all 15 fits.
+  - **Redundancy:** for pairs with |Spearman ρ| ≥ 0.95 on dev, keep the one with the higher mean gain.
+  - 🟢 **Null importance** (optional, from 4.14): shuffle the target 20 times and keep features whose real gain beats the 95th percentile of the null gain.
+  - **Prefer the smallest stable set.** The pruned set replaces the 5.0a winner unless the winner beats it by the 5.0a choice rule, so the final set is the smallest one that matches or improves the larger set's dev OOF AUC.
+- [ ] 🔴 **5.0c Freeze the feature set.** `FEATURES` = the 5.0b result (the 5.0a winner if 5.0b is skipped). Record the candidate table, the per-seed scores and the pruned columns in `decisions.md`. Everything from 5.1 on uses this set, and tuning never reopens it.
+
+**Models, only after `FEATURES` is frozen**
+
+- [ ] 🔴 **5.1 LightGBM** on the frozen dev folds and the frozen `FEATURES`, early stopping on AUC, deterministic mode. Start from `LGB_PARAMS` (A11). Tune lightly, on dev CV only with one seed, and only `learning_rate`, `num_leaves`, `min_data_in_leaf` and `feature_fraction`.
+- [ ] 🔴 **5.2 CatBoost** (`CAT_PARAMS`, A11) on the same `FEATURES`, as the diversity model. It is often strong on mid-size tabular data, and its different trees make it a good blend partner. Its job is diversity, so it keeps `CAT_PARAMS` rather than being tuned.
 - [ ] 🟠 **5.3 Third model** (XGBoost or ExtraTrees), only if it improves the dev OOF blend.
-- [ ] 🔴 **5.4 Seed averaging, at the end only.** Once the solution is largely frozen: the same folds, `SEEDS = [42, 7, 2026]`, used by `fit_blend` in the holdout check and the final fit. Never during feature experiments.
-- [ ] 🔴 **5.5 Blend.** Rank average (A16). Choose the weight on dev OOF from a coarse grid (0.3 / 0.5 / 0.7), not with a fine optimizer, which overfits.
-- [ ] 🔴 **5.6 Stability report.** Dev fold mean ± std and the correlation between the models' predictions (roughly 0.85–0.98 is healthy, below 0.7 needs investigating). 🟢 Time stress test: train on the oldest 80% of dev, validate on the newest 20% (`time_folds`, A07). It is reported, never used to select.
-- [ ] 🟠 **5.7 Explainability.** Mean gain importance across folds; optional SHAP summary for the top 20. Check that the signs make business sense, e.g. more cash in the trigger than usual → higher risk. → F17
+- [ ] 🔴 **5.4 Seed averaging, at the end only.** Once the solution is largely frozen: the same folds, `SEEDS = [42, 7, 2026]`, used by `fit_blend` in the holdout check and the final fit. Never during open-ended feature experiments or tuning; the closed checks in 5.0a and 5.0b are the only earlier uses.
+- [ ] 🔴 **5.5 Blend.** Rank average (A16). Choose the weight on dev OOF from the coarse grid 0.3 / 0.5 / 0.7 only, not with a fine optimizer, which overfits.
+- [ ] 🔴 **5.6 Stability report.** Dev fold mean ± std and the correlation between the models' predictions (roughly 0.85–0.98 is healthy, below 0.7 needs investigating). **Final seed-stability check:** the frozen configuration (features, parameters, blend weight) with each of the three `SEEDS`; report the dev CV AUC per seed for the blend and for LightGBM alone. If a gain the configuration relies on (the tuning, the blend over LightGBM alone) is smaller than the spread across seeds, prefer the simpler configuration and record why. 🟢 Time stress test: train on the oldest 80% of dev, validate on the newest 20% (`time_folds`, A07). It is reported, never used to select.
+- [ ] 🟠 **5.7 Explainability.** Mean gain importance across folds; optional SHAP summary for the top 20. Check that the signs make business sense, e.g. transfers that are small for the alert's own card level → higher risk (F09, F12). → F17
 - [ ] 🟠 **5.8 Business metrics for the website.** Dev OOF ROC curve, Gini, KS and capture@10/20/30% ("reviewing the top 20% of the queue catches X% of escalations"). → A16, F16
-- [ ] 🔴 **5.9 Freeze the configuration (Sat 22:00).** `FEATURES`, preprocessing, `LGB_PARAMS`, `CAT_PARAMS`, `SEEDS` and `W_LGB` go into `decisions.md`. **Write the holdout warning rule there before scoring:** warning if dev OOF AUC − holdout AUC ≥ 2 bootstrap SE (≈ 0.025 with 481 holdout positives). It is a warning threshold, not proof of generalization.
+- [ ] 🔴 **5.9 Freeze the configuration (Sat 22:00).** `FEATURES` (from 5.0c), preprocessing, `LGB_PARAMS`, `CAT_PARAMS`, `SEEDS` and `W_LGB` go into `decisions.md`. **Write the holdout warning rule there before scoring:** warning if dev OOF AUC − holdout AUC ≥ 2 bootstrap SE (≈ 0.025 with 481 holdout positives). It is a warning threshold, not proof of generalization.
 
 > **Tuning note:** keep any tuning code behind `RUN_TUNING = False` and paste the best parameters in as constants, so the final notebook runs fast.
 
@@ -602,10 +624,10 @@ Everything here runs on the dev folds. No holdout numbers exist yet.
 
 ## 11. Phase 6 — Freeze, confirm, final fit, submit (Sun) 🔴
 
-- [ ] 🔴 **6.1 Feature freeze Sat 22:00.** Sunday is for verification, not new ideas.
+- [ ] 🔴 **6.1 Feature freeze Sat 22:00.** `FEATURES` as chosen in 5.0a–5.0c, together with the 5.9 configuration. Sunday is for verification, not new ideas.
 - [ ] 🔴 **6.2 Holdout confirmation, once (Sun 09:00).** `fit_blend` with the frozen config on the dev folds → predict the holdout → holdout AUC with a bootstrap CI vs the dev OOF AUC. Log both in `decisions.md` and `metrics.json`. The cell is added to the notebook only now, so no earlier run ever printed a holdout number. → A17
   - **No warning** (drop < 2 SE): go to 6.3. This supports the CV process; it does not prove that the model generalizes.
-  - **Warning** (drop ≥ 2 SE): a warning, not a tuning signal. Investigate on dev CV (fold spread, the last families the ablation added, the blend weight). If a simpler configuration is clearly safer on dev CV, switch to it and record why. Do not re-score the holdout to choose, and report the holdout number as it came out.
+  - **Warning** (drop ≥ 2 SE): a warning, not a tuning signal. Investigate on dev CV (fold spread, the feature-set choice in 5.0a–5.0c, the blend weight). If a simpler configuration is clearly safer on dev CV, for example a smaller 5.0a candidate, switch to it and record why. Do not re-score the holdout to choose, and report the holdout number as it came out.
 - [ ] 🔴 **6.3 Final fit on all 14,000.** The same frozen config on `final_folds` (5-fold on all labels), with early stopping inside each fold. Test predictions are averaged over folds and seeds, then rank-blended with `W_LGB`. The 20% is never kept out of the final model. → A18
 - [ ] 🔴 **6.4 Sanity checks.** The test prediction distribution resembles the full OOF distribution, there are no NaNs, the LightGBM/CatBoost test correlation is healthy, and the validator passes.
 - [ ] 🔴 **6.5 Restart & Run All** → CSV written → validator passes (A12) → note the md5.

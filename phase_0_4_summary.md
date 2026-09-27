@@ -1,8 +1,8 @@
-# Phases 0–4 summary: data, validation, baseline, behavioral EDA and features
+# Phases 0–5 summary: data, validation, baseline, behavioral EDA, features and the frozen model
 
 **Team RYM** · WIUT Hackathon 2026, FinTech track · status as of Sat 26 Sep 2026
 
-Phases 0 (setup), 1 (data audit), 2 (target, split and validation), 3 (behavioral EDA) and 4 (EDA-driven features) are done. Phase 5 (models and blend) starts next. Every number below comes from `notebooks/solution.ipynb`, which runs top to bottom in about three minutes and gives identical outputs on every run. Numbers marked *side check* come from quick checks outside the notebook.
+Phases 0 (setup), 1 (data audit), 2 (target, split and validation), 3 (behavioral EDA), 4 (EDA-driven features) and 5 (feature selection and model) are done, and the model is frozen. Phase 6 (the one holdout check, the final fit and the submission) comes next. Every number below comes from `notebooks/solution.ipynb`, which runs top to bottom in about six minutes and gives identical outputs on every run. Numbers marked *side check* come from quick checks outside the notebook.
 
 ## In short
 
@@ -12,9 +12,16 @@ Phases 0 (setup), 1 (data audit), 2 (target, split and validation), 3 (behaviora
 - **Each history has the same shape.** Transactions are observed within a common 180-day lookback window: slowly declining background activity, then a dense burst in the last minutes before the alert.
 - **The burst is structure, not signal.** Phase 3 tested it as the main behavioral hypothesis: neither the burst nor its change from the alert's background separates the classes on its own (13 trigger variables at AUC 0.470–0.528). Phase 4 confirmed it inside the model: the trigger family adds −0.0001 AUC on top of the amounts.
 - **The signal is in amounts measured on their own channel's scale.** Escalated alerts make bank transfers that are small for their own card spending (AUC 0.397). Phase 4 found the mirror image in cash: incoming cash that is large for the alert's card level goes with escalation (AUC 0.549).
-- **Features lift the model from 0.614 to 0.637** (Gini 0.228 → 0.274) on the development folds. Almost all of the gain comes from one family, the channel-relative amounts (+0.019). Six of the nine families tested add nothing and are dropped. The frozen set has 72 features.
+- **Features did most of the work.** Phase 4's one-seed ablation kept 72 features at 0.637. Almost all of that gain comes from one family, the channel-relative amounts (+0.019). Six of the nine families tested add nothing and are dropped.
+- **The frozen model: 62 features and a lightly tuned LightGBM.** It scores 0.639 mean fold AUC, 0.638 pooled out of fold (Gini 0.276), averaged over three seeds, against 0.614 for the baseline.
+  - Phase 5 rechecked the features with three seeds and dropped compression, whose one-seed gain did not hold.
+  - Pruning removed five rare-channel features.
+  - Shallow trees (7 leaves) beat the defaults under every seed.
+  - CatBoost and a blend added nothing, so the model is LightGBM alone.
+- **In queue terms,** reviewing the top 20% of alerts by score catches 33% of escalations. The top tenth escalates at 31% and the bottom tenth at 9%, against 17.2% overall.
 - **The model's confident errors are mirror images of the other class.** They are not a pattern a missing feature would catch.
-- **A valid submission file already exists:** `submissions/team_486052EC.csv`, from the baseline. It passes every format check.
+- **Holdout warning line:** the holdout is scored once, on Sunday. A holdout AUC below about 0.613 would raise the pre-registered warning.
+- **A valid submission file already exists:** `submissions/team_486052EC.csv`, from the baseline. It passes every format check; the final model replaces it in Phase 6.
 
 ## The data
 
@@ -202,7 +209,7 @@ Families were added one at a time to the 29 totals, in the order the EDA ranked 
 | sequence | 64 | 0.6334 | −0.0035 | 2 | no |
 | context | 3 | 0.6333 | −0.0036 | 2 | no |
 
-**Frozen feature set (`FEATURES`):** the 29 totals plus amounts, mix and compression, 72 columns.
+**Ablation-kept set:** the 29 totals plus amounts, mix and compression, 72 columns. Phase 5 rechecked it with three seeds and trimmed it to 62 (below).
 
 | Metric | Baseline (29 totals) | Kept set (72 features) |
 |---|---|---|
@@ -236,7 +243,7 @@ The last two carry gain only through combinations with other features.
 2. **Passing the screen is not the same as adding information.** Twenty-one of the 36 window counts lie outside the chance band, yet the family lowers the model's AUC. The counts that separate the classes, such as outgoing cash (0.539 in the background count), are already in the totals (0.541), so the model gains nothing new.
 3. **The burst adds nothing, even inside the model.** Phase 3 showed the trigger variables are not predictive on their own. Added to the model on top of the amounts, the trigger family changes the AUC by −0.0001 (2 of 5 folds up).
 4. **Pass-through points the right way but does not help.** In Phase 3 the typology variables leaned the expected way (0.526–0.528). As a family they lower the model's AUC (−0.002, 1 of 5 folds up).
-5. **Two families were kept by a hair.** Mix and compression each add +0.002. A side check with other seeds (below) shows the compression gain does not hold up.
+5. **Two families were kept by a hair.** Mix and compression each add +0.002. Phase 5 reran them with three seeds: mix holds, compression does not.
 6. **International transfers are strong but mostly missing.** Outgoing international minus card size scores 0.434, one of the strongest features. But two thirds of alerts (67%) never use the channel, so it can help only a third of the queue.
 7. **The fold spread grew.** The kept set's fold AUCs range from 0.601 to 0.670 (± 0.028), against ± 0.016 for the baseline. The amounts gain varies by fold, from −0.002 on the third fold to +0.034 on the second. The fifth fold stays the weakest, as it was for the baseline.
 8. **No drift on any of the 199 features.** This supports the Phase 2 finding that the test set is the same population.
@@ -260,40 +267,118 @@ We read the 20 escalated alerts the kept model ranks lowest and the 20 dismissed
 
 ### Side checks (outside the notebook)
 
-**Seed stability of the kept families.** The same ablation steps, rerun with LightGBM seeds 7 and 2026 on the same folds:
-
-| Seed | Totals | + amounts | + mix | + compression |
-|---|---|---|---|---|
-| 42 (notebook) | 0.6139 | 0.6326 | 0.6348 | 0.6369 |
-| 7 | 0.6113 | 0.6321 | 0.6350 | 0.6341 |
-| 2026 | 0.6110 | 0.6311 | 0.6356 | 0.6310 |
-
-- **Amounts holds up.** Its gain is +0.019 to +0.021 under every seed.
-- **Mix holds up too, though it is small:** +0.002 to +0.005.
-- **Compression does not.** It gives +0.002, −0.001 and −0.005, so its place in the kept set is one-seed luck.
-- **Amounts alone beats the totals.** The 30 amounts features without the totals reach 0.632.
 - **Shrinkage does not help.** Shrinking the per-alert channel means towards the channel average for short histories (the missed escalations are short) scores 0.635 against 0.637: no effect.
+- The seed-stability check that first stood here is now in the notebook, as the Phase 5 feature-set comparison below.
 
 ### Decisions
 
-- **`FEATURES` frozen by the rule:** the 29 totals plus amounts, mix and compression, 72 columns, at a development CV AUC of 0.637.
+- **Kept by the ablation:** the 29 totals plus amounts, mix and compression, 72 columns, at a development CV AUC of 0.637 on one seed. This became the starting candidate for Phase 5.
 - **Dropped:** windows, typology, trigger, rhythm, sequence and context. Each lowered the mean fold AUC.
-- **Open for the team:** compression passes the pre-registered rule but fails the seed side check. Either keep it (the rule as written), or recheck mix and compression with the three final seeds in Phase 5 and drop what does not hold.
+- **Compression was provisional** because its gain was the size of seed noise. Phase 5 dropped it (below).
+
+## Feature selection and the frozen model (Phase 5)
+
+Everything here uses the development folds only. The holdout is still closed.
+
+### Which feature set: four candidates under three seeds
+
+The candidates were compared with the default LightGBM settings and seeds 42, 7 and 2026. A larger set replaces a smaller one only if it gains under every seed **and** at least 4 of 5 folds improve on the seed-averaged fold AUCs.
+
+| Candidate | Features | Seed 42 | Seed 7 | Seed 2026 | Mean |
+|---|---|---|---|---|---|
+| amounts only | 30 | 0.6316 | 0.6308 | 0.6292 | 0.6306 |
+| base + amounts | 59 | 0.6326 | 0.6321 | 0.6311 | 0.6320 |
+| **base + amounts + mix** | **67** | 0.6348 | 0.6350 | 0.6356 | **0.6351** |
+| + compression | 72 | 0.6369 | 0.6341 | 0.6310 | 0.6340 |
+
+- **Base alone is not enough.** The 29 totals add only +0.001 to +0.002 to the amounts family and improve 3 of 5 folds.
+- **Base with mix clears the rule easily.** Together they beat amounts alone under every seed (+0.003 to +0.006) and in 5 of 5 folds.
+- **Compression was one-seed luck.** Its +0.002 on seed 42 turns into −0.001 and −0.005 under the other seeds (2 of 5 folds up), so it is dropped.
+- **The amounts family alone (30 features) already reaches 0.631.**
+
+### Pruning: 67 → 62
+
+- **Importance is stable where it matters.** Over the 15 fits (5 folds × 3 seeds), the three strongest features take 8–19%, 6–10% and 2–5% of the gain in every fit. None of the top eight ever has a fit with zero gain.
+- **Five features are dropped.** Each stays below 0.2% of the gain in all 15 fits. All describe rare events: three international tail shares, the top-1% share of outgoing cash, and the outgoing international count.
+- **Almost no redundancy.** Only one pair of the 67 is correlated at |ρ| ≥ 0.95 (outgoing international count and sum), and its weaker half is among the five.
+- **A borderline call, kept by team decision.** The pruned set scores 0.6334 against 0.6351. The unpruned set is ahead under two seeds but behind by 0.0001 under the third, so by the rule the smaller set is kept. The difference is within seed noise either way.
+
+### The model
+
+- **LightGBM, lightly tuned.**
+  - The grid covered 7/15/31 leaves × 50/200 per leaf × feature fraction 0.5/0.7, on one seed. All four 7-leaf points land in the top five, and the defaults come last (0.6323), although the whole grid spans only 0.005.
+  - The best point is 7 leaves, at least 200 alerts per leaf and feature fraction 0.7, with the learning rate lowered to 0.01.
+  - It beats the defaults under every seed (+0.008, +0.006, +0.003) and in 4 of 5 folds: 0.639 averaged over the seeds, against 0.633.
+- **CatBoost with default settings: 0.635** on seed 42. It trails LightGBM in 4 of 5 folds and ranks alerts much like it (out-of-fold Spearman 0.93). The two share 8 of their top 10 features and the same top two.
+- **No blend.** Rank blends at LightGBM weights 0.3 / 0.5 / 0.7 reach a mean fold AUC of 0.638 / 0.639 / 0.640, against 0.640 for LightGBM alone. The best is ahead in only 2 of 5 folds and has a lower pooled AUC (0.6384 against 0.6387). The model is LightGBM alone.
+
+### The frozen model on the development folds
+
+| Metric | Baseline (29 totals, one seed) | Frozen model (62 features, 3 seeds) |
+|---|---|---|
+| **Mean fold AUC** | 0.614 ± 0.016 | **0.639 ± 0.026** |
+| **Pooled out-of-fold AUC** | 0.612 | **0.638** |
+| **Gini** (pooled) | – | **0.276** |
+| KS | – | 0.224 |
+| Fold AUCs | 0.617 · 0.625 · 0.611 · 0.632 · 0.585 | 0.642 · 0.670 · 0.614 · 0.665 · 0.606 |
+
+- **The seeds barely disagree.** Their predictions correlate at 0.991–0.992, and their mean fold AUCs lie within 0.0016 (0.638–0.640). The smallest tuning gain (+0.0027) is larger than that spread, so the tuning is real.
+- **The folds differ far more than the seeds.** Fold AUCs range from 0.606 to 0.670, so which alerts land in a fold matters more than the random seed.
+- **No decay over time.** Trained on the oldest 80% of the development alerts and scored on the newest 20% (from 7 June 2026, 387 escalated), the model reaches 0.664 (SE ≈ 0.016). It is no lower than on the shuffled folds; the check is reported, not used to choose.
+
+**What drives it** (SHAP out of fold, F17):
+- **Where the weight is:** amounts 61% of the SHAP weight, totals 30%, channel shares 9%.
+- **Every one of the 12 strongest features pushes the score the same way as it separates the classes on its own:**
+  - transfers that are small for the alert's card level raise it (Spearman between value and SHAP −0.95 outgoing, −0.93 incoming)
+  - incoming cash that is large for the card level raises it (+0.93)
+  - a large single cash deposit raises it (+0.94)
+- **A point a business reader may question:** larger amounts in general *lower* the score (the largest transaction −0.82, the largest outgoing transfer −0.86). That is how alerts were decided in this data, where escalated alerts make smaller transfers. It does not say that large amounts are safe.
+
+**Business metrics** (F16):
+
+| Review the top … of the queue | Share of escalations caught | Escalation rate in that slice |
+|---|---|---|
+| 10% | 17.8% | 30.6% (1.8× the 17.2% base rate) |
+| 20% | 33.2% | 28.5% |
+| 30% | 47.4% | 27.1% |
+| bottom 10% (for contrast) | – | 9.4% |
+
+- **What the score is for:** it splits the queue into a riskier top and a calmer bottom. It does not isolate a group that is safe to close unseen, so use it to order the queue, not to drop alerts.
+
+### What stood out in Phase 5
+
+1. **The one-seed ablation overstated a family.** Compression looked like +0.002 on seed 42 and was −0.005 under seed 2026. Three seeds were enough to show it.
+2. **Shallow trees win.** Seven leaves beat 31 leaves at every setting of the other two parameters. This fits a weak signal carried by a few smooth relations, such as transfer and cash size against the card level. Tuning adds about 0.006, small next to the +0.02 from features.
+3. **A second model adds nothing.** CatBoost ranks alerts almost the same way (0.93) and a bit worse, and no blend weight helps.
+4. **The newest alerts are scored no worse** (0.664 on the time split). There is no sign the pattern fades.
+5. **One sign flips once the cash features are together.** The background share of incoming cash (SHAP rank 14) lowers the score at high values, although on its own it goes slightly with escalation (0.520). Its effect is most likely conditional on the other cash features, which carry the main cash signal.
+6. **The pruning decision is a coin flip,** 0.6334 against 0.6351, within seed noise. We keep the smaller set by the rule.
+
+### Frozen configuration (logged in `decisions.md`)
+
+| | Setting |
+|---|---|
+| Features | 62: the 29 totals, amounts and mix, minus five rare-channel features |
+| Preprocessing | none; missing values left to LightGBM |
+| Model | LightGBM alone, no blend |
+| LightGBM | learning rate 0.01, 7 leaves, at least 200 per leaf, feature fraction 0.7, bagging fraction 0.8, lambda_l2 1.0, early stopping 200 rounds on the fold's AUC |
+| Seeds | 42, 7, 2026, predictions averaged |
+| Pooled dev OOF AUC | **0.638** |
+| Holdout warning rule | warning if 0.638 − holdout AUC ≥ 2 bootstrap SE (≈ 0.025), i.e. a holdout AUC below about 0.613. A warning threshold, not proof of generalization |
 
 ## What comes next
 
 | When | Phase | Main question |
 |---|---|---|
-| Sat evening | 5: Modeling | LightGBM + CatBoost on the 72 features, light tuning, rank blend, stability report; settle the compression question; freeze at 22:00 |
-| Sun 09:00 | 6: Holdout check, once | Development vs holdout AUC against the warning rule |
-| Sun | 6: Final fit and submission | Retrain on all 14,000, validate the CSV, reproduce on a second laptop, submit by 18:00 (deadline 23:59) |
+| Sun 09:00 | 6: Holdout check, once | The frozen model (3 seeds, dev folds) scores the holdout once; holdout AUC with a bootstrap CI against the pooled dev OOF AUC of 0.638. A holdout AUC below about 0.613 raises the warning |
+| Sun | 6: Final fit and submission | The same configuration on 5 folds over all 14,000 alerts, test predictions averaged over folds and seeds; validate the CSV, reproduce on a second laptop, README, submit by 18:00 (deadline 23:59) |
 
-The baseline was feature-limited (5–86 trees per fold). With the new features, Phase 5 checks whether the model side can add anything on top: CatBoost as a blend partner, light tuning, and seed averaging.
+The model is LightGBM alone, so the holdout check and the final fit use the notebook's `fit_seeds` (three-seed LightGBM). The two-model `fit_blend` in the `todo.md` appendix is not needed.
 
 ## For the team
 
 **Website (EDA site)**
-- Figures ready in `figures/`, 18 in total:
+- Figures ready in `figures/`, 20 in total:
   - Audit and validation:
     - F00a hour and weekday
     - F00b relative time and the burst
@@ -310,37 +395,45 @@ The baseline was feature-limited (5–86 trees per fold). With the new features,
     - F09 amounts by channel and class (**key figure**)
     - F10 burst compression
     - F11 transaction sequences
-  - Features (new):
+  - Features:
     - F12 the six features with the most gain, escalation rate by decile
     - F13 family ablation: which EDA ideas paid off (**key figure**)
     - F14 the 25 strongest single features
     - F15 drift: PSI and the train-vs-test classifier on all features
+  - Model (new):
+    - F16 ROC, escalations caught when reviewing the top of the queue, escalation rate by score decile (**key figure**)
+    - F17 what drives the model: gain share and SHAP values
 - Each figure's finding and action are in `artifacts/insights.json`.
-- New tables for the website: `artifacts/feature_screen.csv` (every feature's AUC, fold range, IV, family) and `artifacts/ablation.csv`.
+- Tables for the website:
+  - `artifacts/feature_screen.csv`: every feature's AUC, fold range, IV and family
+  - `artifacts/ablation.csv`: the family ablation
+  - `artifacts/metrics.json` (new): the development metrics and the frozen configuration. The holdout AUC is added once, in Phase 6.
 - Suggested placement:
   - Target and behavior section: F04 and F09 go together (the hypothesis we tested and what the data showed instead). F03, F06, F07, F08, F10 and F11 fit the same section as supporting views.
   - Transaction history section: F05.
   - "Features and modeling ideas motivated by EDA" section: F13, then F12 and F14. F13 is the story in one chart: the amounts pay off, and the burst, windows and sequences do not.
   - Validation section: F15, next to F02.
+  - Conclusion section: F16, with the queue numbers (top 20% catches 33% of escalations), and F17 for how the score can be explained to analysts. Quote development numbers as development numbers; the holdout AUC comes on Sunday.
 - Publish only aggregated figures and numbers: never raw data, never `split.csv`.
 
 **QA and submission**
 - `submissions/team_486052EC.csv` is still the valid fallback made from the baseline. The final model will overwrite it in Phase 6.
 - The notebook's validator checks columns, row count, IDs, missing values, the 0–1 range and the file name.
-- A full run takes about three minutes; two consecutive runs give identical md5 for every figure, artifact and the submission.
+- A full run takes about six minutes; two consecutive runs give identical md5 for every figure, artifact and the submission.
 - **Open item:** confirm with the organisers that `486052EC` is our TEAM_ID before we submit.
 
 **Files produced so far**
 
 | File | What it is |
 |---|---|
-| `notebooks/solution.ipynb` | The notebook: Setup, Load, Data audit, Target / split / validation, Behavioural EDA, Feature engineering, Screening / drift / ablation, Exports |
+| `notebooks/solution.ipynb` | The notebook: Setup, Load, Data audit, Target / split / validation, Behavioural EDA, Feature engineering, Screening / drift / ablation, Feature selection, Models on the development folds, Frozen model, Exports |
 | `artifacts/F00_dataset_overview.csv`, `F00_schema.csv` | Dataset overview and column descriptions |
 | `artifacts/split.csv` | Frozen split and folds (internal only) |
-| `artifacts/cv_log.csv` | Every model run with its fold scores, including each ablation step |
+| `artifacts/cv_log.csv` | Every model run with its fold scores: ablation steps, feature-set candidates per seed, tuning grid, CatBoost, the frozen model |
 | `artifacts/feature_screen.csv` | Univariate screen of all 199 features |
 | `artifacts/ablation.csv` | Family ablation table |
+| `artifacts/metrics.json` | Development metrics of the frozen model and its configuration |
 | `artifacts/insights.json` | Figure findings for the website |
-| `artifacts/decisions.md` | Every decision with its evidence |
-| `figures/F00a`–`F15` | Eighteen figures (PNG) |
+| `artifacts/decisions.md` | Every decision with its evidence, including the frozen configuration and the holdout warning rule |
+| `figures/F00a`–`F17` | Twenty figures (PNG) |
 | `submissions/team_486052EC.csv` | Baseline safety submission |

@@ -1,27 +1,39 @@
-# Phases 0–5 summary: data, validation, baseline, behavioral EDA, features and the frozen model
+# Phases 0–6 summary: data, validation, baseline, behavioral EDA, features, the final model and the submission
 
-**Team RYM** · WIUT Hackathon 2026, FinTech track · status as of Sat 26 Sep 2026
+**Team RYM** · WIUT Hackathon 2026, FinTech track · status as of Sun 27 Sep 2026
 
-Phases 0 (setup), 1 (data audit), 2 (target, split and validation), 3 (behavioral EDA), 4 (EDA-driven features) and 5 (feature selection and model) are done, and the model is frozen. Phase 6 (the one holdout check, the final fit and the submission) comes next. Every number below comes from `notebooks/solution.ipynb`, which runs top to bottom in about six minutes and gives identical outputs on every run. Numbers marked *side check* come from quick checks outside the notebook.
+All phases are done:
+- 0 (setup)
+- 1 (data audit)
+- 2 (target, split and validation)
+- 3 (behavioral EDA)
+- 4 (EDA-driven features)
+- 5 (feature selection and model)
+- 6 (the one holdout check, the final fit and the submission)
+
+Every number below comes from `notebooks/solution.ipynb` or the artifacts it writes. The notebook runs top to bottom in about six minutes and gives identical outputs on every run. Two markers flag numbers from elsewhere:
+- *Earlier version*: from the longer notebook of Sat 26 Sep (commit `7628b55`). These checks were cut when the notebook was shortened on Sunday, and their results are logged in `artifacts/decisions.md`.
+- *Side check*: from quick checks outside the notebook.
 
 ## In short
 
 - **The data is clean.** It has no nulls, no duplicate rows, no orphan transactions and no alerts without a history, so no cleaning step is needed.
 - **The test set is a random 30% of alerts from the same two years.** It is not a later period. Test and train cannot be told apart (adversarial AUC 0.497 on the totals, 0.500 on all 199 features), so ordinary stratified cross-validation estimates the hidden score.
-- **Escalation is stable.** 17.2% of alerts are escalated, and the rate does not drift over 24 months. Workload, weekday, month-end and public holidays have no effect.
+- **Escalation is stable.** 17.2% of alerts are escalated, and the rate does not drift over 24 months. Workload, weekday, month-end and public holidays have no effect (*earlier version*).
 - **Each history has the same shape.** Transactions are observed within a common 180-day lookback window: slowly declining background activity, then a dense burst in the last minutes before the alert.
 - **The burst is structure, not signal.** Phase 3 tested it as the main behavioral hypothesis: neither the burst nor its change from the alert's background separates the classes on its own (13 trigger variables at AUC 0.470–0.528). Phase 4 confirmed it inside the model: the trigger family adds −0.0001 AUC on top of the amounts.
 - **The signal is in amounts measured on their own channel's scale.** Escalated alerts make bank transfers that are small for their own card spending (AUC 0.397). Phase 4 found the mirror image in cash: incoming cash that is large for the alert's card level goes with escalation (AUC 0.549).
 - **Features did most of the work.** Phase 4's one-seed ablation kept 72 features at 0.637. Almost all of that gain comes from one family, the channel-relative amounts (+0.019). Six of the nine families tested add nothing and are dropped.
-- **The frozen model: 62 features and a lightly tuned LightGBM.** It scores 0.639 mean fold AUC, 0.638 pooled out of fold (Gini 0.276), averaged over three seeds, against 0.614 for the baseline.
+- **The final model: 64 features and a lightly tuned LightGBM.** Averaged over three seeds, it scores 0.647 mean fold AUC and 0.645 pooled out of fold on the development set (Gini 0.290), against 0.614 and 0.612 for the baseline.
   - Phase 5 rechecked the features with three seeds and dropped compression, whose one-seed gain did not hold.
   - Pruning removed five rare-channel features.
   - Shallow trees (7 leaves) beat the defaults under every seed.
   - CatBoost and a blend added nothing, so the model is LightGBM alone.
-- **In queue terms,** reviewing the top 20% of alerts by score catches 33% of escalations. The top tenth escalates at 31% and the bottom tenth at 9%, against 17.2% overall.
-- **The model's confident errors are mirror images of the other class.** They are not a pattern a missing feature would catch.
-- **Holdout warning line:** the holdout is scored once, on Sunday. A holdout AUC below about 0.613 would raise the pre-registered warning.
-- **A valid submission file already exists:** `submissions/team_486052EC.csv`, from the baseline. It passes every format check; the final model replaces it in Phase 6.
+  - On Sunday a wider search found two sharper amount contrasts, which were added to the 62 features: +0.007 pooled, 5 of 5 folds up. This reopened the Saturday freeze, and the deviation is logged.
+- **The holdout agrees with the development estimate.** Scored once, it gives AUC **0.651** (95% CI 0.626–0.678) against 0.645 on the development folds. That is above the pre-registered warning line of 0.620, so there is no warning.
+- **In queue terms,** reviewing the top 20% of alerts by score catches 34% of escalations. The top tenth escalates at 29.9% and the bottom tenth at 9.7%, against 17.2% overall.
+- **The model's confident errors are mirror images of the other class** (*earlier version*, on the 72-feature model). They are not a pattern a missing feature would catch.
+- **The submission is final.** `submissions/team_486052EC.csv` comes from the 64-feature model refit on all 14,000 alerts, with a pooled out-of-fold AUC of 0.643. It passes every format check, and its md5 is `6b50d37886f0c1b95f93c3f471e337e0`.
 
 ## The data
 
@@ -30,7 +42,7 @@ Phases 0 (setup), 1 (data audit), 2 (target, split and validation), 3 (behaviora
 | Alerts | 14,000 (with labels) | 6,000 |
 | Transactions | 6,987,663 | 3,027,575 |
 | Alert dates | 1 Jan 2025 – 31 Dec 2026 | same range |
-| Transactions per alert | median 461, max 2,279 | median 460.5, max 1,985 |
+| Transactions per alert | median 461 | median 460.5 |
 | Lookback window | a common 180 days before the alert date | same |
 
 Each alert has one row in the signals table: its ID, alert date and, for train, the label `eskalatsiya` (1 = escalated, 0 = dismissed). Each transaction has a timestamp, a direction (incoming or outgoing), a type (card, bank transfer, cash, international) and `miqdor_indeksi`, an amount index on an unknown scale.
@@ -43,13 +55,13 @@ The submission has one row per test alert with the escalation probability. It is
 |---|---|---|
 | Is the data clean? | 0 nulls, 0 duplicate rows, 0 orphan transactions, 0 alerts without a history | No cleaning step |
 | Do train and test look alike? | Category shares agree within 0.2 points and amount quantiles agree to two decimals | Same pipeline for both |
-| Do IDs or file order leak the label? | ID number, file row order and alert date all score AUC 0.498–0.508; the test share is 28–32% in every ID decile | Never used as features |
+| Do IDs or file order leak the label? | ID number, file row order and alert date all score AUC 0.499–0.508; the test share is 28–32% in every ID decile | Never used as features |
 | Do alerts share customers? | 0 of 10,015,238 transaction rows appear under more than one alert | No group-aware folds, no linkage features |
-| Is anything recorded after the alert? | 0 transactions after the alert date; transactions are observed within a common 180-day lookback window (the earliest transaction sits 180 days out for the median alert, at least 170 days out for 95%) | No leakage filter needed |
+| Is anything recorded after the alert? | 0 transactions after the alert date; transactions are observed within a common 180-day lookback window (the earliest transaction sits 180 days out for the median alert) | No leakage filter needed |
 | Is there a daily or weekly rhythm? | Hours 0–22 hold 3.8% each and weekdays 14.3% each. Hour 23 holds 11.7%, and that is the pre-alert burst | No hour or weekday features |
 | Where is the activity? | Background falls from about 3 transactions a day (120 days out) to about 1 a day in the last week. Then about 8% of all rows arrive in a burst: median 31 per alert, 1.5 minutes before the alert midnight, 99% within 3 minutes | Treat the trigger window (`lag_days <= 1`) and the background (`lag_days >= 2`) separately |
 | Do all alerts have a burst? | 152 alerts have none; 21 have it just after midnight on the alert day itself | The window is defined by day (`lag_days <= 1`), not by clock time |
-| What is the amount index? | One global scale, near-normal (mean −0.13, sd 0.98), not standardized per alert (per-alert means spread with sd 0.49). Each channel is its own bell curve: card lowest, international about 2 sd higher, outgoing above incoming | Amounts are compared within their own channel (direction × type), not on one global threshold. `exp(index)` is only an experiment |
+| What is the amount index? | One global scale, near-normal with a right tail and a floor at −2.9, not standardized per alert (per-alert means spread with sd 0.49). Each channel is its own bell curve: card lowest, international about 2 sd higher, outgoing above incoming | Amounts are compared within their own channel (direction × type), not on one global threshold. `exp(index)` is only an experiment |
 | Are there round or repeated amounts? | Only 4 values repeat exactly, and each is the cap of one transaction type. 120 alerts hit a cap, escalating at 13% against 17% overall, within noise | No round-amount features; a cap flag is optional |
 | Are same-second transactions errors? | 1.3% of rows share a second with another row of the same alert: 17% of burst rows but 0.04% elsewhere | Kept: they are part of the burst, and a gap of 0 seconds is information |
 
@@ -72,16 +84,16 @@ The submission has one row per test alert with the escalation probability. It is
 
 - **Settings:** stratified on the label with seed 42, saved in `artifacts/split.csv`.
 - **Holdout warning rule, fixed now before any scoring:** we get a warning if the development AUC beats the holdout AUC by at least 2 bootstrap standard errors (about 0.025).
-- **What a warning means:** we check the development folds and prefer the simpler model, and we never tune on the holdout. The rule is a warning threshold, not proof that the model generalizes.
-- **Final model:** the same frozen configuration, retrained with 5 folds on all 14,000 alerts. Test predictions are averaged over the folds.
+- **What a warning means:** we check the development folds and prefer the simpler model, and we never tune on the holdout. The rule is a warning threshold, not proof that the model generalizes. In Phase 6 it was restated as a fixed number before the holdout was opened: a warning if the holdout AUC is below 0.620.
+- **Final model:** the same frozen configuration, retrained with 5 folds on all 14,000 alerts. Test predictions are averaged over the folds and seeds.
 
 ### Is escalation stable, and is the test set like train?
 
 | Check (development set only, where labels are used) | Result | Conclusion |
 |---|---|---|
 | Monthly escalation rate, 24 months | 13.6%–20.7%, no step or trend; chi-square p = 0.14; 2025 at 17.0% vs 2026 at 17.3% | Policy is stable, so no time-ordered validation |
-| Alert volume vs rate | Volume moves in steps (up about 60% in July 2025, down in April and July 2026); alerts per day vs escalation gives AUC 0.49 | Busy days don't change outcomes; not a feature |
-| Calendar | Weekday p = 0.45; last 3 days of the month p = 0.63; ±3 days around Navruz, Independence Day and both hayits p = 0.53 | No date or calendar features |
+| Alert volume vs rate (*earlier version*) | Volume moves in steps (up about 60% in July 2025, down in April and July 2026); alerts per day vs escalation gives AUC 0.49 | Busy days don't change outcomes; not a feature |
+| Calendar (*earlier version*) | Weekday p = 0.45; last 3 days of the month p = 0.63; ±3 days around Navruz, Independence Day and both hayits p = 0.53 | No date or calendar features |
 | Weekly test share | Within the 95% band of a random 30% draw in 101 of 105 weeks | Test is interleaved with train week by week |
 | Adversarial validation (a model trained to tell test from train) | AUC 0.497, no feature above 5.4% of the importance | Test is the same population, so cross-validation on train is a fair estimate |
 
@@ -99,7 +111,7 @@ The submission has one row per test alert with the escalation probability. It is
 | Pooled out-of-fold AUC (all 5 folds' predictions together) | 0.612 |
 | Trees kept by early stopping, per fold | 44 · 86 · 21 · 39 · 5 |
 | Best single total on its own | 0.556 (largest outgoing bank transfer) |
-| Test predictions (safety file) | 6,000 rows, 0.118 to 0.324, median 0.165 |
+| Test predictions (safety file, replaced by the final submission in Phase 6) | 6,000 rows, 0.118 to 0.324, median 0.165 |
 
 **How to read it:** 0.5 is random and 1.0 is perfect. At 0.614 the model ranks a random escalated alert above a random dismissed one about 61% of the time. That is some signal, but weak.
 
@@ -127,8 +139,8 @@ The submission has one row per test alert with the escalation probability. It is
 ### What the history looks like before any label
 
 - **The burst has its own composition.** It is a rapid run of small card payments: 60% card against 53% in the background, 32% transfers against 40%, and a mean amount index of −0.50 against −0.10.
-- **The trigger window and the burst differ in length.** The burst spans a median 2.8 minutes, but the trigger window spans 135 minutes, because 7,200 alerts also have a few ordinary transactions earlier on the day before.
-- **Edge cases:**
+- **The trigger window and the burst differ in length** (*earlier version*). The burst spans a median 2.8 minutes, but the trigger window spans 135 minutes, because 7,200 alerts also have a few ordinary transactions earlier on the day before.
+- **Edge cases** (*earlier version*):
   - 119 alerts have no background at all, so any change from the background is undefined for them.
   - 132 alerts have no burst in the last hour.
   - In 10 alerts the burst sits earlier on the day before.
@@ -151,17 +163,17 @@ The submission has one row per test alert with the escalation probability. It is
 
 - **Transfers are smaller.** Escalated alerts' mean outgoing transfer is 0.15 channel standard deviations smaller (AUC 0.426), and the mean incoming transfer 0.12 smaller (0.439). International transfers are smaller too. Card and cash differ by 0.06 or less.
 - **It is a stable trait, not a change before the alert.** Escalated alerts' outgoing transfers are 0.10–0.13 standard deviations smaller in every band, from six months out to the trigger window itself.
-- **It sharpens against the alert's own level.** An alert's amounts move together across channels (Spearman 0.47–0.87 between its channel means). Outgoing transfer size minus outgoing card size scores AUC 0.397, with every fold between 0.375 and 0.430, while card size alone scores 0.495.
+- **It sharpens against the alert's own level.** An alert's amounts move together across channels (Spearman 0.47–0.87 between its channel means, *earlier version*). Outgoing transfer size minus outgoing card size scores AUC 0.397, with every fold between 0.375 and 0.430, while card size alone scores 0.495.
 - **The interaction is visible directly.** In the middle card-size quintile, escalation falls from 25% for the smallest transfers to 4% for the largest. For mid-sized transfers, it rises from 13% with the smallest card payments to 24% with the largest.
-- **Across deciles** of the relative measure, the escalation rate runs from about 24% down to 9.3%, about 2.5 times apart.
+- **Across deciles** of the relative measure, the escalation rate runs from about 24% down to 9%, about 2.5 times apart.
 - **How we read it:** escalated alerts move money by bank transfer in smaller amounts than their own card spending would suggest. The pattern recalls structuring, but the data cannot say why analysts escalate it.
 - **Confirmed in Phase 4:** adding the amounts family to the baseline lifts the development CV AUC from 0.614 to 0.633 (see below).
 
 ### Decisions logged
 
-- **Trigger boundary:** `lag_days <= 1` for counts, shares and amounts. Its AUCs are within 0.002 of the last-hour core, and it also catches the 10 early bursts. The last-hour core is used for timing.
+- **Trigger boundary** (*earlier version*): `lag_days <= 1` for counts, shares and amounts. Its AUCs are within 0.002 of the last-hour core, and it also catches the 10 early bursts. The last-hour core is used for timing.
 - **Background windows:** no window is special, so 7, 30 and 90 days stay as default candidates only.
-- **Error analysis** of the model's most confident misses: done in Phase 4, on the first behavioral model.
+- **Error analysis** of the model's most confident misses: done in Phase 4, on the first behavioral model (*earlier version*).
 
 ## Features and ablation (Phase 4)
 
@@ -171,7 +183,7 @@ The submission has one row per test alert with the escalation probability. It is
 - **No labels in the features.** Channel statistics (mean, sd, p95, p99 and the per-type cap for each direction × type) come from train and test transactions together.
 - **The baseline stays in.** The 29 totals remain as the reference, and every other feature belongs to one family, so the ablation keeps or drops each family as a whole.
 - **199 features in total.** None is constant or a copy of another, and missing values stay missing rather than imputed.
-- **Left out on purpose:** alerts per day and the alert-date calendar, because Phase 2 showed they carry no signal.
+- **Left out on purpose:** alerts per day and the alert-date calendar, because Phase 2 showed they carry no signal (*earlier version*).
 
 | Family | Features | What it holds |
 |---|---|---|
@@ -219,6 +231,8 @@ Families were added one at a time to the 29 totals, in the order the EDA ranked 
 
 ### What the kept model uses
 
+Family shares are *earlier version*; the six features below are in F12.
+
 | Family | Features | Share of LightGBM gain |
 |---|---|---|
 | amounts | 30 | 46.8% |
@@ -248,7 +262,7 @@ The last two carry gain only through combinations with other features.
 7. **The fold spread grew.** The kept set's fold AUCs range from 0.601 to 0.670 (± 0.028), against ± 0.016 for the baseline. The amounts gain varies by fold, from −0.002 on the third fold to +0.034 on the second. The fifth fold stays the weakest, as it was for the baseline.
 8. **No drift on any of the 199 features.** This supports the Phase 2 finding that the test set is the same population.
 
-### Error analysis: the confident misses are mirror images
+### Error analysis: the confident misses are mirror images (*earlier version*)
 
 We read the 20 escalated alerts the kept model ranks lowest and the 20 dismissed alerts it ranks highest, out of fold on the development set.
 
@@ -312,36 +326,61 @@ The candidates were compared with the default LightGBM settings and seeds 42, 7 
 - **CatBoost with default settings: 0.635** on seed 42. It trails LightGBM in 4 of 5 folds and ranks alerts much like it (out-of-fold Spearman 0.93). The two share 8 of their top 10 features and the same top two.
 - **No blend.** Rank blends at LightGBM weights 0.3 / 0.5 / 0.7 reach a mean fold AUC of 0.638 / 0.639 / 0.640, against 0.640 for LightGBM alone. The best is ahead in only 2 of 5 folds and has a lower pooled AUC (0.6384 against 0.6387). The model is LightGBM alone.
 
+### Two more amount contrasts (Sunday, a logged deviation)
+
+The configuration was first frozen on Saturday with 62 features. On Sunday we ran a wider search on the development folds. It ran outside the notebook, with the holdout still closed: about 1,550 feature sets built around the channel-relative amounts, with permuted features as nulls. Two contrasts held up, and both are sharper versions of the main finding:
+
+- **`outgoing_transfer_minus_card_z_p75`** takes the upper quartile of the alert's background outgoing-transfer size minus the upper quartile of its outgoing-card size. The existing feature compares means. It scores AUC 0.387 on its own, against 0.397 for the mean-based version.
+- **`cash_minus_transfer_contrast_z`** is incoming cash minus card, less the average of the two transfer-minus-card contrasts. It is high when cash is large and transfers are small for the card level. It scores AUC 0.609 on its own, against 0.549 for incoming cash minus card.
+
+| Tuned LightGBM on the development folds | 62 features | 64 features |
+|---|---|---|
+| Mean fold AUC, seeds 42 / 7 / 2026 | 0.6400 / 0.6384 / 0.6384 | 0.6467 / 0.6474 / 0.6464 |
+| Gain per seed | – | +0.0068 / +0.0090 / +0.0080 |
+| Folds up (seed-averaged) | – | 5 of 5 |
+| Pooled out of fold | 0.6378 | 0.6452 |
+
+- **It passes the rule every feature-set change had to pass:** a gain under every seed, and at least 4 of 5 folds up.
+- **On three fresh splits of the development set, the 64 win every time.** This check was reported only, and it ran before the holdout.
+  - Mean fold gain: +0.0067 / +0.0051 / +0.0101
+  - Pooled gain: +0.0077 / +0.0017 / +0.0077
+- **Part of the gain is likely selection inflation, about +0.001 to +0.002,** because the pair came out of a search on these same folds.
+- **The search's own pick was not adopted.** That was a 53-feature set at +0.015 over the 62, but its extra gain over the pair could not be separated from selection noise.
+- **Tuning, CatBoost and the blend were not reopened.**
+
 ### The frozen model on the development folds
 
-| Metric | Baseline (29 totals, one seed) | Frozen model (62 features, 3 seeds) |
+| Metric | Baseline (29 totals, one seed) | Frozen model (64 features, 3 seeds) |
 |---|---|---|
-| **Mean fold AUC** | 0.614 ± 0.016 | **0.639 ± 0.026** |
-| **Pooled out-of-fold AUC** | 0.612 | **0.638** |
-| **Gini** (pooled) | – | **0.276** |
-| KS | – | 0.224 |
-| Fold AUCs | 0.617 · 0.625 · 0.611 · 0.632 · 0.585 | 0.642 · 0.670 · 0.614 · 0.665 · 0.606 |
+| **Mean fold AUC** | 0.614 ± 0.016 | **0.647 ± 0.028** |
+| **Pooled out-of-fold AUC** | 0.612 | **0.645** |
+| **Gini** (pooled) | – | **0.290** |
+| KS | – | 0.241 |
+| Fold AUCs | 0.617 · 0.625 · 0.611 · 0.632 · 0.585 | 0.646 · 0.679 · 0.615 · 0.678 · 0.617 |
 
-- **The seeds barely disagree.** Their predictions correlate at 0.991–0.992, and their mean fold AUCs lie within 0.0016 (0.638–0.640). The smallest tuning gain (+0.0027) is larger than that spread, so the tuning is real.
-- **The folds differ far more than the seeds.** Fold AUCs range from 0.606 to 0.670, so which alerts land in a fold matters more than the random seed.
-- **No decay over time.** Trained on the oldest 80% of the development alerts and scored on the newest 20% (from 7 June 2026, 387 escalated), the model reaches 0.664 (SE ≈ 0.016). It is no lower than on the shuffled folds; the check is reported, not used to choose.
+- **The seeds barely disagree.** Their out-of-fold predictions correlate at 0.990–0.993, and their mean fold AUCs lie within 0.001 of each other (0.6464–0.6474).
+- **The folds differ far more than the seeds.** Fold AUCs range from 0.615 to 0.679, so which alerts land in a fold matters more than the random seed.
+- **No decay over time.** Trained on the oldest 80% of the development alerts and scored on the newest 20% (from 7 June 2026, 387 escalated), the model reaches 0.673 (SE ≈ 0.016). That is no lower than on the shuffled folds. The check is reported, not used to choose.
 
 **What drives it** (SHAP out of fold, F17):
-- **Where the weight is:** amounts 61% of the SHAP weight, totals 30%, channel shares 9%.
-- **Every one of the 12 strongest features pushes the score the same way as it separates the classes on its own:**
-  - transfers that are small for the alert's card level raise it (Spearman between value and SHAP −0.95 outgoing, −0.93 incoming)
-  - incoming cash that is large for the card level raises it (+0.93)
-  - a large single cash deposit raises it (+0.94)
-- **A point a business reader may question:** larger amounts in general *lower* the score (the largest transaction −0.82, the largest outgoing transfer −0.86). That is how alerts were decided in this data, where escalated alerts make smaller transfers. It does not say that large amounts are safe.
+- **Where the weight is:** amounts carry 65% of the SHAP weight, totals 27% and channel shares 9%.
+- **The two new contrasts rank first and second:**
+  - the cash contrast holds 17.5% of the weight; a higher value raises the score (Spearman between value and SHAP +0.80)
+  - the upper-quartile transfer contrast holds 15% (−0.89)
+- **All ten strongest features push the score the same way as they separate the classes on their own:**
+  - transfers that are small for the alert's card level raise it (−0.87 for outgoing transfer minus card)
+  - incoming cash that is large for the card level raises it (+0.84)
+  - a large single cash deposit raises it (+0.93)
+- **A point a business reader may question:** larger amounts in general *lower* the score (the largest transaction −0.80). That is how alerts were decided in this data, where escalated alerts make smaller transfers. It does not say that large amounts are safe.
 
 **Business metrics** (F16):
 
 | Review the top … of the queue | Share of escalations caught | Escalation rate in that slice |
 |---|---|---|
-| 10% | 17.8% | 30.6% (1.8× the 17.2% base rate) |
-| 20% | 33.2% | 28.5% |
-| 30% | 47.4% | 27.1% |
-| bottom 10% (for contrast) | – | 9.4% |
+| 10% | 17.4% | 29.9% (1.7× the 17.2% base rate) |
+| 20% | 34.4% | 29.5% |
+| 30% | 48.5% | 27.8% |
+| bottom 10% (for contrast) | – | 9.7% |
 
 - **What the score is for:** it splits the queue into a riskier top and a calmer bottom. It does not isolate a group that is safe to close unseen, so use it to order the queue, not to drop alerts.
 
@@ -350,30 +389,74 @@ The candidates were compared with the default LightGBM settings and seeds 42, 7 
 1. **The one-seed ablation overstated a family.** Compression looked like +0.002 on seed 42 and was −0.005 under seed 2026. Three seeds were enough to show it.
 2. **Shallow trees win.** Seven leaves beat 31 leaves at every setting of the other two parameters. This fits a weak signal carried by a few smooth relations, such as transfer and cash size against the card level. Tuning adds about 0.006, small next to the +0.02 from features.
 3. **A second model adds nothing.** CatBoost ranks alerts almost the same way (0.93) and a bit worse, and no blend weight helps.
-4. **The newest alerts are scored no worse** (0.664 on the time split). There is no sign the pattern fades.
-5. **One sign flips once the cash features are together.** The background share of incoming cash (SHAP rank 14) lowers the score at high values, although on its own it goes slightly with escalation (0.520). Its effect is most likely conditional on the other cash features, which carry the main cash signal.
+4. **The newest alerts are scored no worse** (0.673 on the time split). There is no sign the pattern fades.
+5. **One sign flips once the cash features are together** (*earlier version*, on the 62-feature model). The background share of incoming cash (SHAP rank 14) lowers the score at high values, although on its own it goes slightly with escalation (0.520). Its effect is most likely conditional on the other cash features, which carry the main cash signal.
 6. **The pruning decision is a coin flip,** 0.6334 against 0.6351, within seed noise. We keep the smaller set by the rule.
+7. **Features beat tuning again.** The two contrasts added +0.007 pooled, more than all of the tuning (+0.006).
 
 ### Frozen configuration (logged in `decisions.md`)
 
 | | Setting |
 |---|---|
-| Features | 62: the 29 totals, amounts and mix, minus five rare-channel features |
+| Features | 64: the 29 totals, amounts and mix, minus five rare-channel features, plus the two amount contrasts |
 | Preprocessing | none; missing values left to LightGBM |
 | Model | LightGBM alone, no blend |
 | LightGBM | learning rate 0.01, 7 leaves, at least 200 per leaf, feature fraction 0.7, bagging fraction 0.8, lambda_l2 1.0, early stopping 200 rounds on the fold's AUC |
 | Seeds | 42, 7, 2026, predictions averaged |
-| Pooled dev OOF AUC | **0.638** |
-| Holdout warning rule | warning if 0.638 − holdout AUC ≥ 2 bootstrap SE (≈ 0.025), i.e. a holdout AUC below about 0.613. A warning threshold, not proof of generalization |
+| Pooled dev OOF AUC | **0.645** |
+| Holdout warning rule | warning if the holdout AUC is below **0.620**: the pooled dev AUC minus about 0.025, two bootstrap SE at 481 escalated alerts. The number was fixed before the holdout was opened; the bootstrap SE and CI are reported only. A warning threshold, not proof of generalization |
 
-## What comes next
-
-| When | Phase | Main question |
-|---|---|---|
-| Sun 09:00 | 6: Holdout check, once | The frozen model (3 seeds, dev folds) scores the holdout once; holdout AUC with a bootstrap CI against the pooled dev OOF AUC of 0.638. A holdout AUC below about 0.613 raises the warning |
-| Sun | 6: Final fit and submission | The same configuration on 5 folds over all 14,000 alerts, test predictions averaged over folds and seeds; validate the CSV, reproduce on a second laptop, README, submit by 18:00 (deadline 23:59) |
+## Holdout check, final fit and submission (Phase 6)
 
 The model is LightGBM alone, so the holdout check and the final fit use the notebook's `fit_seeds` (three-seed LightGBM). The two-model `fit_blend` in the `todo.md` appendix is not needed.
+
+### The holdout, scored once
+
+The frozen 64-feature model scored the 2,800 holdout alerts (481 escalated). It was trained on the five development folds × three seeds, exactly as in Phase 5. The warning line of 0.620 was fixed before the cell first ran.
+
+| | ROC-AUC | Gini |
+|---|---|---|
+| Development folds, pooled out of fold | 0.645 | 0.290 |
+| **Holdout** | **0.651** | **0.301** |
+| Holdout bootstrap SE and 95% CI (1,000 resamples, reported only) | 0.013, 0.626–0.678 | |
+
+- **No warning.** The holdout sits 0.005 above the development estimate and well above the 0.620 line. Nothing was changed after it.
+- **What it shows:** the cross-validation process gave an honest estimate.
+- **What it does not show:** it is not proof that the model generalizes. At SE 0.013 the holdout alone is too wide to confirm the +0.007 from the two contrasts.
+- **Only this one evaluation is used for any decision.** The notebook recomputes the same number on every run, deterministically, so later runs are reproduction checks, not new looks. Only the 64-feature model was ever scored on the holdout.
+
+### The final fit
+
+- **Same recipe on all labels.** The frozen configuration was refit on five folds over all 14,000 labelled alerts (`final_fold` in `split.csv`), with early stopping inside each fold. The test score is the mean of the 15 models (5 folds × 3 seeds).
+- **Pooled out-of-fold AUC on all 14,000: 0.643** (folds 0.632–0.671). That lies between the development 0.645 and the holdout 0.651, so the extra 2,800 labels do not change the picture.
+- **Sanity checks:**
+  - every test alert has a score, and none is missing
+  - the seeds agree on test (Spearman 0.995–0.998)
+  - test scores are centred like the out-of-fold ones (mean 0.172 against 0.171, median 0.153 against 0.157), with tighter tails (1st–99th percentile 0.097–0.313 against 0.071–0.346)
+- **Why the tails are tighter** (*side check*):
+  - Each model scores the test set with the same spread as its own held-out fold (sd 0.059 against 0.059 on average), so the test set is not a different population.
+  - The cause is averaging. A test score is the mean of all 15 models, while an out-of-fold score comes from the three models of one fold, and averaging pulls the extremes in.
+  - Drift was already ruled out in Phase 4 (PSI at most 0.007, adversarial AUC 0.500).
+- **Three of the fifteen final models stop almost at once** (*side check*):
+  - Early stopping ends them after 7–12 trees, on folds where the validation AUC is flat or peaks that early. The other 12 keep 134–1,601 trees.
+  - None of the development-fold models behind the holdout score stopped below 256 trees.
+  - Dropping the three barely moves the test ranking (Spearman 0.99996 with the full mean), so the frozen configuration stays.
+  - A minimum tree count would be the first thing to test next time.
+
+### The submission
+
+- **The file:** `submissions/team_486052EC.csv`, 6,000 rows, one per test alert, with scores from 0.084 to 0.359 (median 0.153).
+- **The check:** the validator passes on columns, row count, IDs, missing values, the 0–1 range and the file name. The md5 is `6b50d37886f0c1b95f93c3f471e337e0`.
+- **Reproducible:** two clean full runs give the same md5 for this file and for every figure and artifact (29 files). A run takes 321–352 s and peaks at about 3.1 GB of memory.
+- **The baseline safety file it replaces** is still written first on every run, and its md5 (`6d42902c…`) is printed in the notebook.
+
+## What is left (Sun 27 Sep)
+
+| Who | Task |
+|---|---|
+| QA | Reproduce on a second laptop from a fresh clone, with the data copied into `data/` (see the README; `ipykernel` must be installed). Expect 6,000 rows and md5 `6b50d378…`, or near-identical scores if library versions differ |
+| Website | F16 and F17 now show the 64-feature model. Add the holdout result from `metrics.json`, then check that the public URL opens in an incognito window without a login |
+| Submission | Confirm the TEAM_ID `486052EC` with the organisers, then submit `team_486052EC.csv`, the website URL and the notebook by 18:00 (deadline 23:59). Keep a screenshot of the confirmation |
 
 ## For the team
 
@@ -400,40 +483,42 @@ The model is LightGBM alone, so the holdout check and the final fit use the note
     - F13 family ablation: which EDA ideas paid off (**key figure**)
     - F14 the 25 strongest single features
     - F15 drift: PSI and the train-vs-test classifier on all features
-  - Model (new):
+  - Model (updated Sunday for the 64-feature model):
     - F16 ROC, escalations caught when reviewing the top of the queue, escalation rate by score decile (**key figure**)
     - F17 what drives the model: gain share and SHAP values
 - Each figure's finding and action are in `artifacts/insights.json`.
 - Tables for the website:
   - `artifacts/feature_screen.csv`: every feature's AUC, fold range, IV and family
   - `artifacts/ablation.csv`: the family ablation
-  - `artifacts/metrics.json` (new): the development metrics and the frozen configuration. The holdout AUC is added once, in Phase 6.
+  - `artifacts/metrics.json`: the development metrics, the holdout result, the final fit, the submission check and the frozen configuration
 - Suggested placement:
   - Target and behavior section: F04 and F09 go together (the hypothesis we tested and what the data showed instead). F03, F06, F07, F08, F10 and F11 fit the same section as supporting views.
   - Transaction history section: F05.
   - "Features and modeling ideas motivated by EDA" section: F13, then F12 and F14. F13 is the story in one chart: the amounts pay off, and the burst, windows and sequences do not.
   - Validation section: F15, next to F02.
-  - Conclusion section: F16, with the queue numbers (top 20% catches 33% of escalations), and F17 for how the score can be explained to analysts. Quote development numbers as development numbers; the holdout AUC comes on Sunday.
+  - Conclusion section: F16, with the queue numbers (top 20% catches 34% of escalations), and F17 for how the score can be explained to analysts. Quote the holdout AUC (0.651, 95% CI 0.626–0.678) as the one clean estimate. Quote the development AUC and the queue numbers as development out-of-fold numbers.
 - Publish only aggregated figures and numbers: never raw data, never `split.csv`.
 
 **QA and submission**
-- `submissions/team_486052EC.csv` is still the valid fallback made from the baseline. The final model will overwrite it in Phase 6.
+- `submissions/team_486052EC.csv` is the final submission: the 64-feature model refit on all 14,000 alerts, md5 `6b50d37886f0c1b95f93c3f471e337e0`.
 - The notebook's validator checks columns, row count, IDs, missing values, the 0–1 range and the file name.
-- A full run takes about six minutes; two consecutive runs give identical md5 for every figure, artifact and the submission.
+- A full run takes about six minutes, and two consecutive runs give identical md5 for every figure, artifact and the submission.
+- Running the notebook from the command line needs `ipykernel` in the same environment. It is not in `requirements.txt`; the README shows how to add it.
 - **Open item:** confirm with the organisers that `486052EC` is our TEAM_ID before we submit.
 
-**Files produced so far**
+**Files produced**
 
 | File | What it is |
 |---|---|
-| `notebooks/solution.ipynb` | The notebook: Setup, Load, Data audit, Target / split / validation, Behavioural EDA, Feature engineering, Screening / drift / ablation, Feature selection, Models on the development folds, Frozen model, Exports |
+| `notebooks/solution.ipynb` | The notebook: Setup, Load, Data audit, Target / split / validation, Behavioural EDA, Feature engineering, Screening / drift / ablation, Feature selection, Models on the development folds, Frozen model, Holdout check, Final fit, Submission, Exports |
+| `README.md` | How to run, versions, runtime and outputs |
 | `artifacts/F00_dataset_overview.csv`, `F00_schema.csv` | Dataset overview and column descriptions |
 | `artifacts/split.csv` | Frozen split and folds (internal only) |
 | `artifacts/cv_log.csv` | Every model run with its fold scores: ablation steps, feature-set candidates per seed, tuning grid, CatBoost, the frozen model |
 | `artifacts/feature_screen.csv` | Univariate screen of all 199 features |
 | `artifacts/ablation.csv` | Family ablation table |
-| `artifacts/metrics.json` | Development metrics of the frozen model and its configuration |
+| `artifacts/metrics.json` | Development, holdout and final-fit metrics, the submission check and the frozen configuration |
 | `artifacts/insights.json` | Figure findings for the website |
-| `artifacts/decisions.md` | Every decision with its evidence, including the frozen configuration and the holdout warning rule |
+| `artifacts/decisions.md` | Every decision with its evidence, including the frozen configuration, the holdout rule and result, and the final fit |
 | `figures/F00a`–`F17` | Twenty figures (PNG) |
-| `submissions/team_486052EC.csv` | Baseline safety submission |
+| `submissions/team_486052EC.csv` | Final submission (64 features, refit on all 14,000 alerts) |

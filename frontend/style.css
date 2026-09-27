@@ -173,10 +173,13 @@ img {
 /* hero */
 
 .hero,
-main,
-.footer-inner {
+main {
   padding-left: var(--gutter);
   padding-right: var(--gutter);
+}
+
+main {
+  padding-bottom: clamp(4rem, 8vw, 6rem);
 }
 
 .hero {
@@ -259,21 +262,6 @@ h1 {
   font-family: var(--ui);
   font-size: 0.86rem;
   color: var(--muted);
-}
-
-.pill {
-  display: inline-block;
-  font-family: var(--ui);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  line-height: 1.7;
-  color: var(--accent);
-  background: var(--accent-soft);
-  padding: 0.05rem 0.55rem;
-  border-radius: 999px;
-  vertical-align: 1px;
 }
 
 .toc {
@@ -367,95 +355,6 @@ p {
 
 .section li::marker {
   color: var(--accent);
-}
-
-/* assumption cards */
-
-.section > .shifts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-  margin-top: 1.75rem;
-  margin-bottom: 1.5rem;
-  padding: 0;
-  list-style: none;
-}
-
-.shift {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 1.25rem 1.4rem 1.2rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-}
-
-.shift p {
-  margin: 0;
-}
-
-.shift .shift-tag {
-  margin-bottom: 0.7rem;
-  font-family: var(--ui);
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.lbl {
-  display: block;
-  margin-bottom: 0.15rem;
-  font-family: var(--ui);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.shift-was {
-  font-style: italic;
-  font-size: 1.02rem;
-  line-height: 1.5;
-}
-
-.shift-was .lbl {
-  font-style: normal;
-}
-
-.shift .shift-data {
-  margin-top: 0.85rem;
-  font-size: 0.96rem;
-  line-height: 1.6;
-}
-
-.shift-data b {
-  font-family: var(--ui);
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.shift .shift-now {
-  margin-top: auto;
-  font-size: 0.96rem;
-  line-height: 1.55;
-}
-
-.shift-now::before {
-  content: "";
-  display: block;
-  margin: 0.85rem 0;
-  border-top: 1px solid var(--line);
-}
-
-.shift-now .lbl {
-  color: var(--accent);
-}
-
-.bridge {
-  font-style: italic;
-  color: var(--muted);
 }
 
 /* approach steps */
@@ -769,44 +668,6 @@ figcaption strong {
   background: var(--escalated);
 }
 
-/* in progress */
-
-.pending {
-  margin-top: 1.6rem;
-  margin-bottom: 1.6rem;
-  padding: 1rem 1.25rem 0.15rem;
-  font-family: var(--ui);
-  font-size: 0.93rem;
-  color: var(--muted);
-  border: 1px dashed var(--line-strong);
-  border-radius: 14px;
-}
-
-.pending .pill {
-  margin-bottom: 0.5rem;
-}
-
-/* footer */
-
-.site-footer {
-  margin-top: 5.5rem;
-  border-top: 1px solid var(--line);
-  font-family: var(--ui);
-}
-
-.footer-inner {
-  max-width: calc(var(--text-width) + 2 * var(--gutter));
-  margin: 0 auto;
-  padding-top: 1.75rem;
-  padding-bottom: 3.5rem;
-  font-size: 0.88rem;
-  color: var(--muted);
-}
-
-.footer-inner strong {
-  color: var(--text);
-}
-
 /* responsive */
 
 @media (min-width: 1101px) {
@@ -825,10 +686,6 @@ figcaption strong {
   .section > .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .section > .shifts {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 640px) {
@@ -843,10 +700,6 @@ figcaption strong {
 
   .stat b {
     font-size: 1.55rem;
-  }
-
-  .shift {
-    padding: 1.1rem 1.1rem 1rem;
   }
 
   .decisions thead {
@@ -960,12 +813,10 @@ figcaption strong {
     padding-top: 1.5rem;
   }
 
-  .shift,
   .frame,
   .table-wrap,
   .stat,
   .families li,
-  .pending,
   figure {
     break-inside: avoid;
   }
